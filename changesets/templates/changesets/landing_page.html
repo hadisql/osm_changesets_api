@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OSM-Changesets API</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 text-gray-900">
+    <div class="container mx-auto p-4">
+        <h1 class="text-4xl font-bold text-center mt-4">Welcome to the Changeset API</h1>
+        <p class="text-lg text-center mt-2">This is the API for accessing changeset data from OpenStreetMap.</p>
+        
+        <div class="max-w-xl mx-auto bg-white p-6 mt-6 rounded-lg shadow-lg">
+            <h2 class="text-2xl font-bold mb-4">Usage</h2>
+            <p class="text-lg mb-4">To fetch changesets in a range, use the form below:</p>
+            
+            <form id="changesetForm" class="space-y-4">
+                <div>
+                    <label for="seq_start" class="block text-lg font-medium text-gray-700">Sequence Start</label>
+                    <input type="number" id="seq_start" name="seq_start" class="mt-1 block w-full border border-gray-300 rounded-md p-2" required>
+                </div>
+                <div>
+                    <label for="seq_end" class="block text-lg font-medium text-gray-700">Sequence End</label>
+                    <input type="number" id="seq_end" name="seq_end" class="mt-1 block w-full border border-gray-300 rounded-md p-2" required>
+                </div>
+                <div class="text-center">
+                    <button type="submit" class="w-full bg-blue-500 text-white p-2 rounded-md">Get Changesets</button>
+                </div>
+            </form>
+        </div>
+        
+        <!-- <div class="max-w-xl mx-auto mt-8 text-center">
+            <h2 class="text-2xl font-bold mb-4">Available Endpoints</h2>
+            <ul class="list-disc list-inside text-lg">
+                <li><a href="/api/changesets/" class="text-blue-500">Changeset List</a></li>
+                <li><a href="/admin/" class="text-blue-500">Admin</a></li>
+            </ul>
+        </div> -->
+    </div>
+
+    <script>
+        document.getElementById('changesetForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+            const seqStart = document.getElementById('seq_start').value;
+            const seqEnd = document.getElementById('seq_end').value;
+            window.location.href = `/api/changesets/${seqStart}/${seqEnd}/`;
+        });
+    </script>
+</html>
