@@ -21,3 +21,7 @@ class ChangesetListView(APIView):
         
         return Response(serializer.data)
 
+from django.views.generic import TemplateView
+
+class APILandingPageView(TemplateView):
+    template_name = 'changesets/landing_page.html'
