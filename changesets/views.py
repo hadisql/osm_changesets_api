@@ -33,3 +33,9 @@ from django.views.generic import TemplateView
 
 class APILandingPageView(TemplateView):
     template_name = 'changesets/landing_page.html'
+
+    def get_context_data(self, **kwargs):
+        import yaml, requests
+        context = super().get_context_data(**kwargs)
+        context['last_changeset_id'] = int(yaml.load(requests.get("https://planet.osm.org/replication/changesets/state.yaml", stream=True).raw.read(),Loader=yaml.FullLoader)["sequence"])
+        return context
