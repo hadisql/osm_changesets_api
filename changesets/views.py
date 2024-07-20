@@ -11,6 +11,14 @@ class ChangesetListView(APIView):
     def get(self, request, seq_start, seq_end):
         seq_start = int(seq_start)
         seq_end = int(seq_end)
+        
+        max_range = 10
+        # Check if the range is too large
+        if seq_end - seq_start > max_range:
+            return Response(
+                {"error": f"The range between seq_start and seq_end should not exceed {max_range}."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         # Fetch and process changesets
         min_changeset, max_changeset = fetch_and_process_changesets(seq_start, seq_end, save_locally=False)
