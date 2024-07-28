@@ -48,12 +48,14 @@ def process_sequence(sequence_number, save_db=True):
     
     sequence_path = "./source/" + str(sequence_number) + ".osm.gz"
     if not path.isfile(sequence_path):
+        sequence_was_fetched = True
         url_sequence = urlized_sequence_number(sequence_number)
         xml_sequence_request = requests.get(url_sequence, stream=True).raw.read()
         xml_sequence = ET.fromstring(gzip.decompress(xml_sequence_request))
         with open(sequence_path, 'wb') as sequence_file:
             sequence_file.write(xml_sequence_request)
     else:
+        sequence_was_fetched = False
         with open(sequence_path, 'rb') as sequence_file:
             xml_sequence = ET.fromstring(gzip.decompress(sequence_file.read()))
 
@@ -121,7 +123,10 @@ def process_sequence(sequence_number, save_db=True):
 
         changesets_processed.append(changeset_to_add)
 
-    print("Processed " + str(sequence_number))
+    if sequence_was_fetched:
+        print("Processed " + str(sequence_number) + ", data fetched from planet.osm.org")
+    else:
+        print("Processed " + str(sequence_number) + ", data fetched locally")
     
     return changesets_processed
 

@@ -39,3 +39,10 @@ class APILandingPageView(TemplateView):
         context = super().get_context_data(**kwargs)
         context['last_changeset_id'] = int(yaml.load(requests.get("https://planet.osm.org/replication/changesets/state.yaml", stream=True).raw.read(),Loader=yaml.FullLoader)["sequence"])
         return context
+
+## Redirect to landing page
+from django.http import HttpResponseRedirect
+from django.urls import reverse
+
+def redirect_to_landing_page(request):
+    return HttpResponseRedirect(reverse('api-landing-page'))
