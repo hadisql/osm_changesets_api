@@ -40,7 +40,7 @@
             event.preventDefault();
             const seqStart = document.getElementById('seq_start').value;
             const seqEnd = document.getElementById('seq_end').value;
-            window.location.href = `/api/changesets/${seqStart}/${seqEnd}/`;
+            window.location.href = `/api/sequence/${seqStart}/${seqEnd}/`;
         });
 
         document.getElementById('last_changeset_btn').addEventListener('click', function() {
