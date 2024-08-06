@@ -12,7 +12,7 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values
 import os
 import dj_database_url
 
@@ -20,7 +20,11 @@ import dj_database_url
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv(BASE_DIR / '.env')  # load .env
+# Load environment variables from .env file into a dictionary
+env_vars = dotenv_values(BASE_DIR / '.env')
+
+# Update the environment with the values from the .env file
+os.environ.update(env_vars)
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv('SECRET_KEY')
