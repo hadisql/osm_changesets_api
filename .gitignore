@@ -4,6 +4,6 @@ db.sqlite3
 source/
 output/
 .env
-tailwindcss
+tailwind*
 tailwind.config.js
 input.css
