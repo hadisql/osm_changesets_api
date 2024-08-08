@@ -5,3 +5,5 @@ source/
 output/
 .env
 tailwindcss
+tailwind.config.js
+input.css
