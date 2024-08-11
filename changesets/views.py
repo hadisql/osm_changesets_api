@@ -20,11 +20,14 @@ class ChangesetListView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Fetch and process changesets
-        min_changeset, max_changeset = fetch_and_process_changesets(seq_start, seq_end, save_locally=False)
+        ## Fetch and process changesets
+        # min_changeset, max_changeset = fetch_and_process_changesets(seq_start, seq_end, save_locally=False)
+        changesets_processed = fetch_and_process_changesets(seq_start, seq_end, save_locally=False)
+        # get the list of processed changeset ids
+        changesets_processed_list = [changeset['changeset_id'] for changeset in changesets_processed]
 
-        # Filter changesets within the requested range
-        changesets = Changeset.objects.filter(changeset_id__gte=min_changeset, changeset_id__lte=max_changeset)
+        ## Filter changesets within list of processed changesets
+        changesets = Changeset.objects.filter(changeset_id__in=changesets_processed_list)
         serializer = ChangesetSerializer(changesets, many=True)
         
         return Response(serializer.data)
