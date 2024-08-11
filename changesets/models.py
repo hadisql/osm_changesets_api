@@ -1,4 +1,5 @@
 from django.db import models
+from django.utils import timezone
 
 class Changeset(models.Model):
     changeset_id = models.BigIntegerField(unique=True)
@@ -14,3 +15,8 @@ class Changeset(models.Model):
     max_lon = models.FloatField(null=True)
     comments_count = models.IntegerField(null=True)
     tags = models.JSONField(null=True)
+    sequence_from = models.IntegerField(null=True) # Sequence from which the changeset was fetched
+    history = models.JSONField(null=True, default=list) # Stores the history of the changeset
+
+    def __str__(self):
+        return str(self.changeset_id)

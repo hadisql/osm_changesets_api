@@ -6,58 +6,14 @@ from .models import Changeset
 from datetime import datetime
 from django.utils import timezone
 import json
-import copy
-
-COLUMNS_MAPPING = {
-    "id": "changeset_id",
-    "created_at": "created_at",
-    "closed_at": "closed_at",
-    "open": "open",
-    "num_changes": "changes_count",
-    "user": "user",
-    "uid": "user_id",
-    "min_lat": "min_lat",
-    "max_lat": "max_lat",
-    "min_lon": "min_lon",
-    "max_lon": "max_lon",
-    "comments_count": "comments_count"
-}
-
-
-def urlized_sequence_number(sequence_number):
-    
-    # returns url of the form https://planet.osm.org/replication/changesets/123/456/789.osm.gz
-    sequence_number_adjusted = str(sequence_number).rjust(9, "0")
-    return f"https://planet.osm.org/replication/changesets/{sequence_number_adjusted[0:3]}/{sequence_number_adjusted[3:6]}/{sequence_number_adjusted[6:9]}.osm.gz"
-
-
-def get_sequence_min_max_changeset_id(sequence_number, locally=False):
-    # returns min and max values of changeset ids 
-    if locally:
-        sequence_path = "./source/" + str(sequence_number) + ".osm.gz"
-        with open(sequence_path, 'rb') as sequence_file:
-            xml_sequence = ET.fromstring(gzip.decompress(sequence_file.read()))
-    else:
-        url_sequence = urlized_sequence_number(sequence_number)
-        xml_sequence_request = requests.get(url_sequence, stream=True).raw.read()
-        xml_sequence = ET.fromstring(gzip.decompress(xml_sequence_request))
-    return min(xml_sequence, key=lambda x: x.attrib['id']).attrib['id'], max(xml_sequence, key=lambda x: x.attrib['id']).attrib['id']
+from django.conf import settings
+from .osm_utils import urlized_sequence_number, changeset_formatting, use_local_data_or_fetch, changeset_check_for_updates
 
 
 def process_sequence(sequence_number, save_db=True):
     
-    sequence_path = "./source/" + str(sequence_number) + ".osm.gz"
-    if not path.isfile(sequence_path):
-        sequence_was_fetched = True
-        url_sequence = urlized_sequence_number(sequence_number)
-        xml_sequence_request = requests.get(url_sequence, stream=True).raw.read()
-        xml_sequence = ET.fromstring(gzip.decompress(xml_sequence_request))
-        with open(sequence_path, 'wb') as sequence_file:
-            sequence_file.write(xml_sequence_request)
-    else:
-        sequence_was_fetched = False
-        with open(sequence_path, 'rb') as sequence_file:
-            xml_sequence = ET.fromstring(gzip.decompress(sequence_file.read()))
+    # fetch and process changesets (locally or online)
+    xml_sequence, sequence_was_fetched = use_local_data_or_fetch(sequence_number)
 
     changesets_processed = []
 
@@ -82,46 +38,13 @@ def process_sequence(sequence_number, save_db=True):
             [...] # more changesets
             </osm>
         """
-        changeset_to_add = {}
-        changeset_to_add["tags"] = {}
+        
+        # formatting changeset
+        changeset_to_add = changeset_formatting(changeset, sequence_number, save_db)
 
-        changeset_id = int(changeset.attrib['id'])
-
-        for attribute, value in changeset.attrib.items():
-            if attribute in COLUMNS_MAPPING:
-                if attribute == "open":
-                    value = value.lower() == 'true'
-                elif attribute in ["changes_count", "comments_count", "user_id"]:
-                    value = int(value)
-                elif attribute in ["min_lat", "max_lat", "min_lon", "max_lon"]:
-                    value = float(value)
-                elif attribute in ["created_at", "closed_at"] and save_db: # when save_db = False, don't convert to datetime object
-                    naive_datetime = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
-                    value = timezone.make_aware(naive_datetime, timezone.utc) # prevents from RuntimeWarning about time zone
-
-                changeset_to_add[COLUMNS_MAPPING[attribute]] = value
-
-            else :
-                print("Sequence number : " + sequence_number)
-                print("Changeset " + changeset.attrib["id"])
-                print("Changeset attribute not known : " + attribute)
-                    
-        for element in changeset:
-            if 'tag' in element.tag:
-                if 'k' in element.attrib:
-                    changeset_to_add["tags"][element.attrib["k"]] = element.attrib["v"]
-            elif 'discussion' in element.tag:
-                ## TODO : implement
-                continue
-            else:
-                print("Sequence number : " + str(sequence_number))
-                print("Changeset : " + changeset.attrib["id"])
-                print("Element of XML not being a <tag> nor <discussion> : " + element.tag)
-
-        if save_db and not Changeset.objects.filter(changeset_id=changeset_id).exists():
-            Changeset.objects.create(**changeset_to_add)
-
-        changesets_processed.append(changeset_to_add)
+        # check if changeset has been updated for the given sequence
+        changeset_updated = changeset_check_for_updates(changeset, changeset_to_add, sequence_number, save_db)
+        changesets_processed.append(changeset_updated)
 
     if sequence_was_fetched:
         print("Processed " + str(sequence_number) + ", data fetched from planet.osm.org")
@@ -136,6 +59,7 @@ def fetch_and_process_changesets(seq_start, seq_end, save_locally=False):
     if seq_start > seq_end:
         seq_start, seq_end = seq_end, seq_start
 
+    all_changesets = []
     for i, sequence_number in enumerate(range(seq_start, seq_end + 1)):
         if save_locally:
             output_path = "./output/" + str(sequence_number) + ".jsonl"
@@ -147,18 +71,13 @@ def fetch_and_process_changesets(seq_start, seq_end, save_locally=False):
                         output_file.write('\n')
             else:
                 print("Sequence " + str(sequence_number) + " already processed.")
-                
-        
         else:
             # If user doesn't want to save locally, save in db
             output_changesets = process_sequence(sequence_number, save_db=True)
 
-    # get min and max values of changeset ids
-    min_changesets = get_sequence_min_max_changeset_id(seq_start, locally=save_locally)[0]
-    max_changesets = get_sequence_min_max_changeset_id(seq_end, locally=save_locally)[1]
-            
-    return min_changesets, max_changesets
+        all_changesets.extend(output_changesets)
 
+    return all_changesets
 
 
 
