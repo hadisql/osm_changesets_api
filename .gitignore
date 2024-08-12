@@ -1,7 +1,7 @@
 .DS_Store
 .venv
 db.sqlite3
-source/
+source/*.osm.gz
 output/
 .env
 tailwind*
