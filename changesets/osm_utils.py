@@ -1,11 +1,10 @@
-from os import path
+from os import path, makedirs
 import requests
 import xml.etree.ElementTree as ET
 import gzip
 from datetime import datetime
 from django.utils import timezone
 from .models import Changeset
-
 
 COLUMNS_MAPPING = {
     "id": "changeset_id",
@@ -95,7 +94,13 @@ def changeset_check_for_updates(changeset, changeset_to_add, sequence_number, sa
 
 
 def use_local_data_or_fetch(sequence_number):
-    sequence_path = "./source/" + str(sequence_number) + ".osm.gz"
+    source_dir = "./source"
+    sequence_path = path.join(source_dir, str(sequence_number) + ".osm.gz")
+    
+    # Ensure the source directory exists
+    if not path.exists(source_dir):
+        makedirs(source_dir)
+
     if not path.isfile(sequence_path):
         sequence_was_fetched = True
         url_sequence = urlized_sequence_number(sequence_number)

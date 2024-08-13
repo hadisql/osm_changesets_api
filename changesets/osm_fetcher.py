@@ -1,4 +1,4 @@
-from os import path
+from os import path, makedirs
 import requests
 import xml.etree.ElementTree as ET
 import gzip
@@ -62,7 +62,14 @@ def fetch_and_process_changesets(seq_start, seq_end, save_locally=False):
     all_changesets = []
     for i, sequence_number in enumerate(range(seq_start, seq_end + 1)):
         if save_locally:
-            output_path = "./output/" + str(sequence_number) + ".jsonl"
+            output_dir = './output'
+            output_path = path.join(output_dir, str(sequence_number) + ".jsonl")
+
+            # Ensure the output directory exists
+            if not path.exists(output_dir):
+                makedirs(output_dir)
+
+            # If the output file doesn't exist, process the sequence
             if not path.isfile(output_path):
                 output_changesets = process_sequence(sequence_number, save_db=False) # if user saves locally, don't save in db
                 with open(output_path, 'w') as output_file:

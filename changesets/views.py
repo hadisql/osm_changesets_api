@@ -21,7 +21,6 @@ class ChangesetListView(APIView):
             )
 
         ## Fetch and process changesets
-        # min_changeset, max_changeset = fetch_and_process_changesets(seq_start, seq_end, save_locally=False)
         changesets_processed = fetch_and_process_changesets(seq_start, seq_end, save_locally=False)
         # get the list of processed changeset ids
         changesets_processed_list = [changeset['changeset_id'] for changeset in changesets_processed]
