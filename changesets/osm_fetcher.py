@@ -7,7 +7,7 @@ from datetime import datetime
 from django.utils import timezone
 import json
 from django.conf import settings
-from .osm_utils import urlized_sequence_number, changeset_formatting, use_local_data_or_fetch, changeset_check_for_updates
+from .osm_utils import urlized_sequence_number, changeset_formatting, use_local_data_or_fetch, changeset_check_if_updates
 
 
 def process_sequence(sequence_number, save_db=True):
@@ -43,7 +43,7 @@ def process_sequence(sequence_number, save_db=True):
         changeset_to_add = changeset_formatting(changeset, sequence_number, save_db)
 
         # check if changeset has been updated for the given sequence
-        changeset_updated = changeset_check_for_updates(changeset, changeset_to_add, sequence_number, save_db)
+        changeset_updated = changeset_check_if_updates(changeset, changeset_to_add, sequence_number, save_db)
         changesets_processed.append(changeset_updated)
 
     if sequence_was_fetched:
