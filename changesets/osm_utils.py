@@ -21,7 +21,28 @@ COLUMNS_MAPPING = {
     "comments_count": "comments_count"
 }
 
-def changeset_check_for_updates(changeset, changeset_to_add, sequence_number, save_db):
+def compare_attributes(value, db_value):
+    """
+    Compare the given value with the database value.
+    Handles special cases like datetime objects and NoneType. 
+    (used in changeset_check_if_updates)
+    """
+    # Handle NoneType: if db_value is None, just compare it directly
+    if db_value is None:
+        return value == db_value
+        
+    # Handle datetime comparison separately
+    if isinstance(value, datetime):
+        return value == db_value
+    
+    # Handle dictionary comparison (e.g., for 'tags' attribute)
+    if isinstance(value, dict):
+        return value == db_value
+    
+    # Apply type conversion for other types
+    return value == type(value)(db_value)
+
+def changeset_check_if_updates(changeset, changeset_to_add, sequence_number, save_db):
     changeset_id = int(changeset.attrib['id'])
 
     if save_db and Changeset.objects.filter(changeset_id=changeset_id).exists():
@@ -54,8 +75,9 @@ def changeset_check_for_updates(changeset, changeset_to_add, sequence_number, sa
         if sequence_number >= current_sequence_from:
             for attribute, value in changeset_to_add.items():
                 # Check if any of the attributes have changed
-                if str(value) != str(getattr(db_changeset, attribute)):
-                    print(f"Attribute {attribute} has changed: {getattr(db_changeset, attribute)} -> {value}")
+                db_value = getattr(db_changeset, attribute)
+                if not compare_attributes(value, db_value):
+                    print(f"Attribute {attribute} has changed: {db_value} -> {value}")
             
                     # Update the attribute in the db (using custom save method)
                     setattr(db_changeset, attribute, value)
