@@ -30,7 +30,7 @@ def compare_attributes(value, db_value):
     # Handle NoneType: if db_value is None, just compare it directly
     if db_value is None:
         return value == db_value
-        
+
     # Handle datetime comparison separately
     if isinstance(value, datetime):
         return value == db_value
@@ -95,7 +95,7 @@ def changeset_check_if_updates(changeset, changeset_to_add, sequence_number, sav
 
                 db_changeset.history.append(changeset_to_add)
                 db_changeset.save()
-                print(f"History appended for Changeset {db_changeset.changeset_id} for 'earlier' this sequence ({sequence_number})")
+                print(f"History appended for Changeset {db_changeset.changeset_id} for 'earlier' than this sequence ({sequence_number})")
             else:
                 print(f"History already contains the current sequence ({sequence_number}) for Changeset {db_changeset.changeset_id}")
 
