@@ -5,6 +5,7 @@ import gzip
 from datetime import datetime
 from django.utils import timezone
 from .models import Changeset
+from django.forms.models import model_to_dict
 
 COLUMNS_MAPPING = {
     "id": "changeset_id",
@@ -42,8 +43,27 @@ def compare_attributes(value, db_value):
     # Apply type conversion for other types
     return value == type(value)(db_value)
 
-def changeset_check_if_updates(changeset, changeset_to_add, sequence_number, save_db):
-    changeset_id = int(changeset.attrib['id'])
+def changeset_snapshot(db_changeset):
+    '''
+    Create a snapshot of the changeset object.
+    '''
+    # Convert model instance to dictionary, excluding unnecessary fields
+    current_state = model_to_dict(db_changeset, exclude=['id', 'changeset_id', 'history'])
+
+    # Convert datetime fields to ISO format
+    for field in ['created_at', 'closed_at']:
+        if current_state.get(field):
+            current_state[field] = current_state[field].isoformat()
+
+    return current_state
+
+def changeset_update_and_process(fetched_changeset, sequence_number, save_db):
+    '''
+    For each fetched changeset in the sequence, check if it exists in the database. 
+    If it does, check if there are any updates to the changeset. 
+    If there are, update the database with the new values and keep track of previous values by appending the history list (attribute) of the Changeset object.
+    '''
+    changeset_id = int(fetched_changeset['changeset_id'])
 
     if save_db and Changeset.objects.filter(changeset_id=changeset_id).exists():
         # Retrieve the existing Changeset object from the database
@@ -53,27 +73,11 @@ def changeset_check_if_updates(changeset, changeset_to_add, sequence_number, sav
         changes_made = False
 
         # a snapshot of the current state before making updates
-        current_sequence_from = db_changeset.sequence_from
-        current_state = {
-            'sequence_from': current_sequence_from,
-            'created_at': db_changeset.created_at.isoformat() if db_changeset.created_at else None,
-            'closed_at': db_changeset.closed_at.isoformat() if db_changeset.closed_at else None,
-            'open': db_changeset.open,
-            'changes_count': db_changeset.changes_count,
-            'user': db_changeset.user,
-            'user_id': db_changeset.user_id,
-            'min_lat': db_changeset.min_lat,
-            'max_lat': db_changeset.max_lat,
-            'min_lon': db_changeset.min_lon,
-            'max_lon': db_changeset.max_lon,
-            'comments_count': db_changeset.comments_count,
-            'tags': db_changeset.tags,
-            # 'timestamp': timezone.now().isoformat()  # Record the time of this snapshot
-        }
+        current_state = changeset_snapshot(db_changeset)
         
         # Check if current sequence is later than the one processed to populate the changeset data
-        if sequence_number >= current_sequence_from:
-            for attribute, value in changeset_to_add.items():
+        if int(sequence_number) >= int(current_state['sequence_from']):
+            for attribute, value in fetched_changeset.items():
                 # Check if any of the attributes have changed
                 db_value = getattr(db_changeset, attribute)
                 if not compare_attributes(value, db_value):
@@ -84,16 +88,16 @@ def changeset_check_if_updates(changeset, changeset_to_add, sequence_number, sav
                     changes_made = True
         # if the changeset has data from a later sequence -> no changeset data update, but append its history attribute
         else:
-            print(f"Changeset {changeset_id} has data from a later sequence ({current_sequence_from}) than the one being processed ({sequence_number})")
+            print(f"Changeset {changeset_id} has data from a later sequence ({current_state['sequence_from']}) than the one being processed ({sequence_number})")
             # if the history doesn't contain the current (older) sequence, append it
             if not sequence_number in [dict['sequence_from'] for dict in db_changeset.history]:
-                # making changeset_to_add datetime attributes JSON serializable 
-                if 'created_at' in changeset_to_add:
-                    changeset_to_add['created_at'] = changeset_to_add['created_at'].isoformat()
-                if 'closed_at' in changeset_to_add:
-                    changeset_to_add['closed_at'] = changeset_to_add['closed_at'].isoformat()
+                # making fetched_changeset datetime attributes JSON serializable 
+                if 'created_at' in fetched_changeset:
+                    fetched_changeset['created_at'] = fetched_changeset['created_at'].isoformat()
+                if 'closed_at' in fetched_changeset:
+                    fetched_changeset['closed_at'] = fetched_changeset['closed_at'].isoformat()
 
-                db_changeset.history.append(changeset_to_add)
+                db_changeset.history.append(fetched_changeset)
                 db_changeset.save()
                 print(f"History appended for Changeset {db_changeset.changeset_id} for 'earlier' than this sequence ({sequence_number})")
             else:
@@ -109,9 +113,9 @@ def changeset_check_if_updates(changeset, changeset_to_add, sequence_number, sav
 
     elif save_db and not Changeset.objects.filter(changeset_id=changeset_id).exists():
         # Create a new Changeset object if it doesn't already exist
-        Changeset.objects.create(**changeset_to_add)
+        Changeset.objects.create(**fetched_changeset)
 
-    return changeset_to_add
+    return fetched_changeset
 
 
 
