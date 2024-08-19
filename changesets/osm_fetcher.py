@@ -4,7 +4,6 @@ import xml.etree.ElementTree as ET
 import gzip
 from .models import Changeset
 from datetime import datetime
-from django.utils import timezone
 import json
 from django.conf import settings
 from .osm_utils import urlized_sequence_number, changeset_formatting, use_local_data_or_fetch, changeset_update_and_process
@@ -18,7 +17,7 @@ def process_sequence(sequence_number, save_db=True):
 
     changesets_processed = []
 
-    for changeset in xml_sequence:
+    for fetched_changeset in xml_sequence:
         """
         Changeset overview :
             <changeset [...] attribute_key="attribute_value" [...]>
@@ -40,14 +39,14 @@ def process_sequence(sequence_number, save_db=True):
             </osm>
         """
 
-        # formatting changeset
-        fetched_changeset = changeset_formatting(changeset, sequence_number, save_db)
+        # formatting fetched changeset and saving/updating Changeset objects in db
+        formatted_changeset = changeset_formatting(fetched_changeset, sequence_number, save_db)
 
         # check if changeset has been updated for the given sequence and process it
-        changeset_updated = changeset_update_and_process(fetched_changeset, sequence_number, save_db)
+        updated_changeset = changeset_update_and_process(formatted_changeset, sequence_number, save_db)
 
         # append processed changeset
-        changesets_processed.append(changeset_updated)
+        changesets_processed.append(updated_changeset)
     
     return changesets_processed
 

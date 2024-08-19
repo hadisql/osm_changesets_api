@@ -19,8 +19,10 @@ COLUMNS_MAPPING = {
     "max_lat": "max_lat",
     "min_lon": "min_lon",
     "max_lon": "max_lon",
-    "comments_count": "comments_count"
+    "comments_count": "comments_count",
 }
+
+SPECIAL_TAGS = ["comment","created_by","locale","source","hashtags","imagery_used","host"]
 
 def compare_attributes(value, db_value):
     """
@@ -57,13 +59,13 @@ def changeset_snapshot(db_changeset):
 
     return current_state
 
-def changeset_update_and_process(fetched_changeset, sequence_number, save_db):
+def changeset_update_and_process(formatted_changeset, sequence_number, save_db):
     '''
     For each fetched changeset in the sequence, check if it exists in the database. 
     If it does, check if there are any updates to the changeset. 
     If there are, update the database with the new values and keep track of previous values by appending the history list (attribute) of the Changeset object.
     '''
-    changeset_id = int(fetched_changeset['changeset_id'])
+    changeset_id = int(formatted_changeset['changeset_id'])
 
     if save_db and Changeset.objects.filter(changeset_id=changeset_id).exists():
         # Retrieve the existing Changeset object from the database
@@ -77,7 +79,7 @@ def changeset_update_and_process(fetched_changeset, sequence_number, save_db):
         
         # Check if current sequence is later than the one processed to populate the changeset data
         if int(sequence_number) >= int(current_state['sequence_from']):
-            for attribute, value in fetched_changeset.items():
+            for attribute, value in formatted_changeset.items():
                 # Check if any of the attributes have changed
                 db_value = getattr(db_changeset, attribute)
                 if not compare_attributes(value, db_value):
@@ -91,13 +93,13 @@ def changeset_update_and_process(fetched_changeset, sequence_number, save_db):
             print(f"Changeset {changeset_id} has data from a later sequence ({current_state['sequence_from']}) than the one being processed ({sequence_number})")
             # if the history doesn't contain the current (older) sequence, append it
             if not sequence_number in [dict['sequence_from'] for dict in db_changeset.history]:
-                # making fetched_changeset datetime attributes JSON serializable 
-                if 'created_at' in fetched_changeset:
-                    fetched_changeset['created_at'] = fetched_changeset['created_at'].isoformat()
-                if 'closed_at' in fetched_changeset:
-                    fetched_changeset['closed_at'] = fetched_changeset['closed_at'].isoformat()
+                # making formatted_changeset datetime attributes JSON serializable 
+                if 'created_at' in formatted_changeset:
+                    formatted_changeset['created_at'] = formatted_changeset['created_at'].isoformat()
+                if 'closed_at' in formatted_changeset:
+                    formatted_changeset['closed_at'] = formatted_changeset['closed_at'].isoformat()
 
-                db_changeset.history.append(fetched_changeset)
+                db_changeset.history.append(formatted_changeset)
                 db_changeset.save()
                 print(f"History appended for Changeset {db_changeset.changeset_id} for 'earlier' than this sequence ({sequence_number})")
             else:
@@ -113,9 +115,9 @@ def changeset_update_and_process(fetched_changeset, sequence_number, save_db):
 
     elif save_db and not Changeset.objects.filter(changeset_id=changeset_id).exists():
         # Create a new Changeset object if it doesn't already exist
-        Changeset.objects.create(**fetched_changeset)
+        Changeset.objects.create(**formatted_changeset)
 
-    return fetched_changeset
+    return formatted_changeset
 
 
 
@@ -148,8 +150,9 @@ def urlized_sequence_number(sequence_number):
 
 
 def changeset_formatting(changeset, sequence_number, save_db):
-    changeset_to_add = {}
-    changeset_to_add["tags"] = {}
+    formatted_changeset = {}
+    formatted_changeset["additional_tags"] = {}
+    formatted_changeset["hashtags"] = []
 
     # formatting changeset data
     for attribute, value in changeset.attrib.items():
@@ -164,24 +167,24 @@ def changeset_formatting(changeset, sequence_number, save_db):
                 naive_datetime = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
                 value = timezone.make_aware(naive_datetime, timezone.utc) # prevents from RuntimeWarning about time zone
 
-            changeset_to_add[COLUMNS_MAPPING[attribute]] = value
+            formatted_changeset[COLUMNS_MAPPING[attribute]] = value
 
         else :
             print("Sequence number : " + sequence_number)
             print("Changeset " + changeset.attrib["id"])
             print("Changeset attribute not known : " + attribute)
-    
-    for element in changeset:
-            if 'tag' in element.tag:
-                if 'k' in element.attrib:
-                    changeset_to_add["tags"][element.attrib["k"]] = element.attrib["v"]
-            elif 'discussion' in element.tag:
-                ## TODO : implement
-                continue
-            else:
-                print("Sequence number : " + str(sequence_number))
-                print("Changeset : " + changeset.attrib["id"])
-                print("Element of XML not being a <tag> nor <discussion> : " + element.tag)
 
-    changeset_to_add['sequence_from'] = sequence_number
-    return changeset_to_add
+    # Process tags elements
+    for tag in changeset.findall('tag'):
+        # if tag in SPECIAL_TAGS then add these tag keys to the Changeset object:
+        if tag.attrib["k"] in SPECIAL_TAGS:
+            if tag.attrib["k"] == "hashtags":
+                formatted_changeset[tag.attrib["k"]].extend(tag.attrib["v"].split(";"))
+            else:
+                formatted_changeset[tag.attrib["k"]] = tag.attrib["v"]
+        # otherwise, add the tag to the Changeset object's additional tags list:
+        else:
+            formatted_changeset["additional_tags"][tag.attrib["k"]] = tag.attrib["v"]
+
+    formatted_changeset['sequence_from'] = sequence_number
+    return formatted_changeset
