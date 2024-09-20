@@ -66,6 +66,7 @@ def redirect_to_landing_page(request):
 
 
 ##############################################
+### Changeset livestream plot
 
 from django.http import JsonResponse
 import requests
