@@ -64,6 +64,16 @@ from django.urls import reverse
 def redirect_to_landing_page(request):
     return HttpResponseRedirect(reverse('api-landing-page'))
 
+
+##############################################
+### Changeset livestream plot
+
+from django.http import JsonResponse
+import requests
+
+# Store the previous sequence to compare with the new one
+last_fetched_sequence = None
+
 def update_changeset_view(request):
     global last_fetched_sequence
     new_sequence = get_last_sequence()
