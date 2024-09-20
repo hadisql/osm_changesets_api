@@ -33,13 +33,28 @@ class ChangesetListView(APIView):
 
 from django.views.generic import TemplateView
 
+def get_last_sequence():
+    import yaml, requests
+    """Fetches the latest sequence from the state.yaml file."""
+    response = requests.get("https://planet.osm.org/replication/changesets/state.yaml", stream=True)
+    last_sequence = int(yaml.load(response.raw.read(), Loader=yaml.FullLoader)["sequence"])
+    return last_sequence
+
+def get_changeset_count(sequence):
+    """Fetches changesets using the provided sequence from the API."""
+    url = f"http://localhost:8000/api/sequence/{sequence}/{sequence}/"
+    response = requests.get(url)
+    if response.status_code == 200:
+        changesets = response.json()
+        return len(changesets)  # Return the number of changesets fetched
+    return 0
+
 class APILandingPageView(TemplateView):
     template_name = 'changesets/landing_page.html'
 
     def get_context_data(self, **kwargs):
-        import yaml, requests
         context = super().get_context_data(**kwargs)
-        context['last_changeset_id'] = int(yaml.load(requests.get("https://planet.osm.org/replication/changesets/state.yaml", stream=True).raw.read(),Loader=yaml.FullLoader)["sequence"])
+        context['last_changeset_id'] = get_last_sequence()
         return context
 
 ## Redirect to landing page
@@ -48,3 +63,16 @@ from django.urls import reverse
 
 def redirect_to_landing_page(request):
     return HttpResponseRedirect(reverse('api-landing-page'))
+
+def update_changeset_view(request):
+    global last_fetched_sequence
+    new_sequence = get_last_sequence()
+
+    # Check if the new sequence is different from the previous one
+    if new_sequence != last_fetched_sequence:
+        changeset_count = get_changeset_count(new_sequence)
+        last_fetched_sequence = new_sequence  # Update the last fetched sequence
+        return JsonResponse({"sequence": new_sequence, "changeset_count": changeset_count})
+    
+    # If there's no new sequence, return an empty response to avoid updating
+    return JsonResponse({"sequence": last_fetched_sequence, "changeset_count": None})
