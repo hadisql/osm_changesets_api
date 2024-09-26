@@ -29,6 +29,18 @@ class ChangesetListView(APIView):
         
         return Response(serializer.data)
 
+class CountView(APIView):
+
+    def get(self, request):
+        request_from = request.GET.get("from")
+        request_to = request.GET.get("to")
+        request_user = request.GET.get("user")
+
+        changesets = Changeset.objects.filter(user__get=request_user)
+        #changesets = Changeset.objects.all
+
+        return Response(ChangesetSerializer(changesets).data)
+
 from django.views.generic import TemplateView
 
 class APILandingPageView(TemplateView):

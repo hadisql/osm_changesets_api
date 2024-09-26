@@ -5,3 +5,4 @@ source/
 output/
 .env
 tailwindcss
+**/__pycache__/
