@@ -35,8 +35,10 @@
             <button id="last_changeset_btn" class="flex w-fit mx-auto text-xl font-bold bg-green-700 text-white text-center px-4 py-2 rounded">{{ last_changeset_id }}</button>
         </div>
 
-        <h1 class="text-2xl font-bold text-center mt-4">Number of changesets in this sequence</h1>
-        <canvas id="changesetChart" width="600" height="400"></canvas>
+        <div class="max-w-xl mx-auto p-6 mt-6">
+            <h1 class="text-2xl font-bold text-center mt-4">Number of changesets in the last 10 sequences: </h1>
+            <canvas id="changesetCountChart" width="600" height="400"></canvas>
+        </div>
     </div>
 
     <script>
@@ -52,7 +54,9 @@
             document.getElementById('seq_end').value = lastChangesetId;
         });
 
-        var ctx = document.getElementById('changesetChart').getContext('2d');
+        var ctx = document.getElementById('changesetCountChart').getContext('2d');
+        
+        // Initialize the chart but leave it empty initially
         var chart = new Chart(ctx, {
             type: 'line',
             data: {
@@ -83,30 +87,84 @@
             }
         });
 
-        function updateChart() {
+        // Function to load the initial data (last 10 changesets)
+        function loadInitialData() {
             $.ajax({
                 url: "{% url 'update_changeset_view' %}",
+                data: { 'initial': 'true' },
                 success: function(data) {
-                    if (data.changeset_count !== null) {
-                        var currentTime = new Date().toLocaleTimeString(); // Current time for labels
-                        
-                        // Add new data point and remove the oldest if there are more than 10 points
-                        if (chart.data.labels.length >= 10) {
-                            chart.data.labels.shift(); // Remove first time point
-                            chart.data.datasets[0].data.shift(); // Remove first data point
-                        }
+                    data.initial_data.forEach(function(item) {
+                        var sequenceTime = convertToLocalTime(item.timestamp);
+                        chart.data.labels.push(sequenceTime);
+                        chart.data.datasets[0].data.push(item.changeset_count);
+                    });
+                    chart.update();
 
-                        // Push new data and labels
-                        chart.data.labels.push(currentTime);
-                        chart.data.datasets[0].data.push(data.changeset_count);
-
-                        // Update the chart
-                        chart.update();
-                    }
+                    // After initial data is loaded, start real-time updates
+                    startRealTimeUpdates();
                 }
             });
         }
-        // Call updateChart every second
-        setInterval(updateChart, 3000);
+
+        // converting fetched timestamps (for each changeset) into local timestamp
+        function convertToLocalTime(timestamp) {
+            // Split the timestamp into hours and minutes
+            var [hours, minutes] = timestamp.split(':').map(Number);
+
+            // Create a new Date object for the current date and time
+            var date = new Date();
+
+            // Set the hours and minutes to the timestamp values
+            date.setHours(hours, minutes, 0, 0);
+
+            // Get the time zone offset in minutes
+            var timeZoneOffset = date.getTimezoneOffset();
+
+            // Adjust the time by adding the time zone offset
+            date.setMinutes(date.getMinutes() - timeZoneOffset);
+
+            // Get the local time
+            var localHours = date.getHours();
+            var localMinutes = date.getMinutes();
+
+            // Format the local time as a string
+            var localTime = pad(localHours) + ':' + pad(localMinutes);
+
+            return localTime;
+        }
+
+        function pad(number) {
+            // Pad the number with a leading zero if it is less than 10
+            return (number < 10 ? '0' : '') + number;
+        }
+
+        function startRealTimeUpdates() {
+            setInterval(function() {
+                $.ajax({
+                    url: "{% url 'update_changeset_view' %}",
+                    success: function(data) {
+                        if (data.changeset_count !== null) {
+                            var currentTime = new Date().toLocaleTimeString(); // Current time for labels
+                            
+                            // Add new data point and remove the oldest if there are more than 10 points
+                            if (chart.data.labels.length >= 10) {
+                                chart.data.labels.shift(); // Remove first time point
+                                chart.data.datasets[0].data.shift(); // Remove first data point
+                            }
+    
+                            // Push new data and labels
+                            chart.data.labels.push(currentTime);
+                            chart.data.datasets[0].data.push(data.changeset_count);
+    
+                            // Update the chart
+                            chart.update();
+                        }
+                    }
+                });
+            }, 3000); // Call updateChart every 3 second
+        }
+        
+        // Load initial data and then start live updates
+        loadInitialData();
     </script>
 </html>
