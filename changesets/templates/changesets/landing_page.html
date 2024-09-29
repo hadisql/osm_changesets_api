@@ -32,12 +32,22 @@
             </form>
 
             <h2 class="text-2xl font-bold mb-4 mt-4">The last sequence number is:</h2>
-            <button id="last_changeset_btn" class="flex w-fit mx-auto text-xl font-bold bg-green-700 text-white text-center px-4 py-2 rounded">{{ last_changeset_id }}</button>
+            <button id="last_changeset_btn" class="animate-pulse flex w-fit mx-auto text-xl font-bold bg-green-700 text-white text-center px-4 py-2 rounded">{{ last_changeset_id }}</button>
         </div>
 
         <div class="max-w-xl mx-auto p-6 mt-6">
-            <h1 class="text-2xl font-bold text-center mt-4">Number of changesets in the last 10 sequences: </h1>
-            <canvas id="changesetCountChart" width="600" height="400"></canvas>
+            <h1 class="text-xl font-bold text-center mt-4">Number of changesets in the last 10 sequences: </h1>
+            <div id="loadingSpinner" class="flex items-center justify-center my-8">
+                <button type="button" class="inline-flex items-center px-4 py-2 font-semibold leading-6 text-sm shadow rounded-md text-white bg-blue-500 hover:bg-blue-400 transition ease-in-out duration-150 cursor-not-allowed" disabled="">
+                    <svg class="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Processing...
+                </button>
+            </div>
+            <canvas id="changesetCountChart" width="600" height="400" style="display: none;"></canvas>
+            <!-- <canvas id="changesetCountChart" width="600" height="400"></canvas> -->
         </div>
     </div>
 
@@ -56,6 +66,9 @@
 
         var ctx = document.getElementById('changesetCountChart').getContext('2d');
         
+        // This array will store the sequence numbers for the tooltip
+        var sequences = [];
+
         // Initialize the chart but leave it empty initially
         var chart = new Chart(ctx, {
             type: 'line',
@@ -83,6 +96,18 @@
                         },
                         suggestedMin: 0,
                     }
+                },
+                plugins: {
+                    tooltip: {
+                        callbacks: {
+                            // Customize the tooltip to include both the changeset count and the sequence
+                            label: function(tooltipItem) {
+                                var changesetCount = tooltipItem.raw;  // Access the data point
+                                var sequenceNumber = sequences[tooltipItem.dataIndex];
+                                return 'Total Changesets: ' + changesetCount + ' (Sequence: ' + sequenceNumber + ')';
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -95,10 +120,19 @@
                 success: function(data) {
                     data.initial_data.forEach(function(item) {
                         var sequenceTime = convertToLocalTime(item.timestamp);
+
+                        // Push changeset_count for plotting and sequence for tooltips
                         chart.data.labels.push(sequenceTime);
                         chart.data.datasets[0].data.push(item.changeset_count);
+
+                        sequences.push(item.sequence); // Store the sequence number for the tooltip
                     });
+
                     chart.update();
+
+                    // Hide the loading spinner and show the chart
+                    document.getElementById('loadingSpinner').classList.add('hidden');
+                    document.getElementById('changesetCountChart').style.display = 'block';
 
                     // After initial data is loaded, start real-time updates
                     startRealTimeUpdates();
@@ -144,23 +178,30 @@
                     url: "{% url 'update_changeset_view' %}",
                     success: function(data) {
                         if (data.changeset_count !== null) {
-                            var currentTime = new Date().toLocaleTimeString(); // Current time for labels
-                            
+                            var currentTime = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false}); // Current time for labels
+
                             // Add new data point and remove the oldest if there are more than 10 points
                             if (chart.data.labels.length >= 10) {
                                 chart.data.labels.shift(); // Remove first time point
                                 chart.data.datasets[0].data.shift(); // Remove first data point
+                                sequences.shift(); // Remove first sequence
                             }
     
                             // Push new data and labels
                             chart.data.labels.push(currentTime);
                             chart.data.datasets[0].data.push(data.changeset_count);
+                            sequences.push(data.sequence); // Store the sequence number for the tooltip
     
                             // Update the chart
                             chart.update();
+
+                            // change last sequence number in the button
+                            document.getElementById('last_changeset_btn').innerHTML = data.sequence;
                         }
                     }
                 });
+
+
             }, 3000); // Call updateChart every 3 second
         }
         
