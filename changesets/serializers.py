@@ -13,3 +13,10 @@ class ChangesetSerializer(serializers.ModelSerializer):
     def get_field_names(self, declared_fields, info):
         diminished_fields = super(ChangesetSerializer, self).get_field_names(declared_fields, info)
         return [field for field in diminished_fields if field not in self.Meta.hide_fields]
+
+
+class ChangesetListSerializer(serializers.ModelSerializer):
+    """Compact representation for list endpoints (omits the bulky history/additional_tags fields)."""
+    class Meta:
+        model = Changeset
+        exclude = ['id', 'history', 'additional_tags']

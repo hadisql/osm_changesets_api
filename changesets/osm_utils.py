@@ -1,11 +1,49 @@
 from os import path, makedirs
+import logging
 import requests
 import xml.etree.ElementTree as ET
 import gzip
-from datetime import datetime
+import yaml
+from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
 from .models import Changeset
 from django.forms.models import model_to_dict
+
+logger = logging.getLogger(__name__)
+
+REQUEST_TIMEOUT = 30  # seconds, for all calls to planet.osm.org
+
+REPLICATION_BASE_URL = "https://planet.osm.org/replication/changesets"
+
+
+class SequenceFetchError(Exception):
+    """Raised when a replication sequence (or the state file) cannot be fetched or parsed."""
+
+
+def get_last_sequence():
+    """Fetches the latest sequence number from the replication state.yaml file."""
+    try:
+        response = requests.get(f"{REPLICATION_BASE_URL}/state.yaml", timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        return int(yaml.safe_load(response.content)["sequence"])
+    except (requests.RequestException, yaml.YAMLError, KeyError, TypeError, ValueError) as exc:
+        raise SequenceFetchError(f"Could not fetch last sequence from state.yaml: {exc}") from exc
+
+
+def fetch_sequence_xml(sequence_number):
+    """
+    Downloads and parses one replication sequence (.osm.gz).
+    Returns (xml_root, raw_gzip_bytes). Raises SequenceFetchError on any network/parsing failure.
+    """
+    url_sequence = urlized_sequence_number(sequence_number)
+    try:
+        response = requests.get(url_sequence, timeout=REQUEST_TIMEOUT)
+        response.raise_for_status()
+        raw_content = response.content
+        xml_sequence = ET.fromstring(gzip.decompress(raw_content))
+        return xml_sequence, raw_content
+    except (requests.RequestException, OSError, EOFError, ET.ParseError) as exc:
+        raise SequenceFetchError(f"Could not fetch sequence {sequence_number}: {exc}") from exc
 
 COLUMNS_MAPPING = {
     "id": "changeset_id",
@@ -83,14 +121,17 @@ def changeset_update_and_process(formatted_changeset, sequence_number, save_db):
                 # Check if any of the attributes have changed
                 db_value = getattr(db_changeset, attribute)
                 if not compare_attributes(value, db_value):
-                    print(f"Attribute {attribute} has changed: {db_value} -> {value}")
+                    logger.debug("Attribute %s has changed: %s -> %s", attribute, db_value, value)
             
                     # Update the attribute in the db (using custom save method)
                     setattr(db_changeset, attribute, value)
                     changes_made = True
         # if the changeset has data from a later sequence -> no changeset data update, but append its history attribute
         else:
-            print(f"Changeset {changeset_id} has data from a later sequence ({current_state['sequence_from']}) than the one being processed ({sequence_number})")
+            logger.debug(
+                "Changeset %s has data from a later sequence (%s) than the one being processed (%s)",
+                changeset_id, current_state['sequence_from'], sequence_number,
+            )
             # if the history doesn't contain the current (older) sequence, append it
             if not sequence_number in [dict['sequence_from'] for dict in db_changeset.history]:
                 # making formatted_changeset datetime attributes JSON serializable 
@@ -101,17 +142,17 @@ def changeset_update_and_process(formatted_changeset, sequence_number, save_db):
 
                 db_changeset.history.append(formatted_changeset)
                 db_changeset.save()
-                print(f"History appended for Changeset {db_changeset.changeset_id} for 'earlier' than this sequence ({sequence_number})")
+                logger.debug("History appended for Changeset %s for 'earlier' than this sequence (%s)", db_changeset.changeset_id, sequence_number)
             else:
-                print(f"History already contains the current sequence ({sequence_number}) for Changeset {db_changeset.changeset_id}")
+                logger.debug("History already contains the current sequence (%s) for Changeset %s", sequence_number, db_changeset.changeset_id)
 
         if changes_made:
             # Append the previous state to the history list
             db_changeset.history.append(current_state)
-            
+
             # Save the updated Changeset object
             db_changeset.save()
-            print(f"History saved for Changeset {db_changeset.changeset_id}")
+            logger.debug("History saved for Changeset %s", db_changeset.changeset_id)
 
     elif save_db and not Changeset.objects.filter(changeset_id=changeset_id).exists():
         # Create a new Changeset object if it doesn't already exist
@@ -121,32 +162,37 @@ def changeset_update_and_process(formatted_changeset, sequence_number, save_db):
 
 
 
-def use_local_data_or_fetch(sequence_number):
+def use_local_data_or_fetch(sequence_number, cache_locally=True):
+    """
+    Returns (xml_root, sequence_was_fetched) for a sequence, reading from ./source
+    if a cached .osm.gz exists. With cache_locally=False nothing is written to disk
+    (intended for the continuous ingestion worker).
+    """
     source_dir = "./source"
     sequence_path = path.join(source_dir, str(sequence_number) + ".osm.gz")
-    
-    # Ensure the source directory exists
-    if not path.exists(source_dir):
-        makedirs(source_dir)
 
-    if not path.isfile(sequence_path):
-        sequence_was_fetched = True
-        url_sequence = urlized_sequence_number(sequence_number)
-        xml_sequence_request = requests.get(url_sequence, stream=True).raw.read()
-        xml_sequence = ET.fromstring(gzip.decompress(xml_sequence_request))
-        with open(sequence_path, 'wb') as sequence_file:
-            sequence_file.write(xml_sequence_request)
-    else:
-        sequence_was_fetched = False
+    if path.isfile(sequence_path):
         with open(sequence_path, 'rb') as sequence_file:
-            xml_sequence = ET.fromstring(gzip.decompress(sequence_file.read()))
+            try:
+                xml_sequence = ET.fromstring(gzip.decompress(sequence_file.read()))
+            except (OSError, EOFError, ET.ParseError) as exc:
+                raise SequenceFetchError(f"Corrupt local file for sequence {sequence_number}: {exc}") from exc
+        return xml_sequence, False
 
-    return xml_sequence, sequence_was_fetched
+    xml_sequence, raw_content = fetch_sequence_xml(sequence_number)
+
+    if cache_locally:
+        if not path.exists(source_dir):
+            makedirs(source_dir)
+        with open(sequence_path, 'wb') as sequence_file:
+            sequence_file.write(raw_content)
+
+    return xml_sequence, True
 
 def urlized_sequence_number(sequence_number):
     # returns url of the form https://planet.osm.org/replication/changesets/123/456/789.osm.gz
     sequence_number_adjusted = str(sequence_number).rjust(9, "0")
-    return f"https://planet.osm.org/replication/changesets/{sequence_number_adjusted[0:3]}/{sequence_number_adjusted[3:6]}/{sequence_number_adjusted[6:9]}.osm.gz"
+    return f"{REPLICATION_BASE_URL}/{sequence_number_adjusted[0:3]}/{sequence_number_adjusted[3:6]}/{sequence_number_adjusted[6:9]}.osm.gz"
 
 
 def changeset_formatting(changeset, sequence_number, save_db):
@@ -159,20 +205,21 @@ def changeset_formatting(changeset, sequence_number, save_db):
         if attribute in COLUMNS_MAPPING:
             if attribute == "open":
                 value = value.lower() == 'true'
-            elif attribute in ["changes_count", "comments_count", "user_id"]:
+            elif attribute in ["num_changes", "comments_count", "uid"]:
                 value = int(value)
             elif attribute in ["min_lat", "max_lat", "min_lon", "max_lon"]:
                 value = float(value)
             elif attribute in ["created_at", "closed_at"] and save_db: # when save_db = False, don't convert to datetime object
                 naive_datetime = datetime.strptime(value, "%Y-%m-%dT%H:%M:%SZ")
-                value = timezone.make_aware(naive_datetime, timezone.utc) # prevents from RuntimeWarning about time zone
+                value = timezone.make_aware(naive_datetime, dt_timezone.utc) # prevents from RuntimeWarning about time zone
 
             formatted_changeset[COLUMNS_MAPPING[attribute]] = value
 
         else :
-            print("Sequence number : " + sequence_number)
-            print("Changeset " + changeset.attrib["id"])
-            print("Changeset attribute not known : " + attribute)
+            logger.warning(
+                "Unknown changeset attribute '%s' (changeset %s, sequence %s)",
+                attribute, changeset.attrib.get("id"), sequence_number,
+            )
 
     # Process tags elements
     for tag in changeset.findall('tag'):

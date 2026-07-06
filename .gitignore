@@ -7,3 +7,5 @@ output/
 tailwind*
 tailwind.config.js
 input.css
+__pycache__/
+staticfiles/

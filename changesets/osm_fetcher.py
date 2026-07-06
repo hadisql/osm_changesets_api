@@ -1,19 +1,16 @@
 from os import path, makedirs
-import requests
-import xml.etree.ElementTree as ET
-import gzip
-from .models import Changeset
-from datetime import datetime
 import json
-from django.conf import settings
-from .osm_utils import urlized_sequence_number, changeset_formatting, use_local_data_or_fetch, changeset_update_and_process
+import logging
+from .osm_utils import changeset_formatting, use_local_data_or_fetch, changeset_update_and_process
+
+logger = logging.getLogger(__name__)
 
 
-def process_sequence(sequence_number, save_db=True):
-    
+def process_sequence(sequence_number, save_db=True, cache_locally=True):
+
     # fetch and process changesets (locally or online)
-    xml_sequence, sequence_was_fetched = use_local_data_or_fetch(sequence_number)
-    print(f"Processed {str(sequence_number)}, data fetched {'from planet.osm.org' if sequence_was_fetched else 'locally'}")
+    xml_sequence, sequence_was_fetched = use_local_data_or_fetch(sequence_number, cache_locally=cache_locally)
+    logger.info("Processed %s, data fetched %s", sequence_number, 'from planet.osm.org' if sequence_was_fetched else 'locally')
 
     changesets_processed = []
 
@@ -51,7 +48,7 @@ def process_sequence(sequence_number, save_db=True):
     return changesets_processed
 
 
-def fetch_and_process_changesets(seq_start, seq_end, save_locally=False):
+def fetch_and_process_changesets(seq_start, seq_end, save_locally=False, cache_locally=False):
 
     if seq_start > seq_end:
         seq_start, seq_end = seq_end, seq_start
@@ -68,19 +65,19 @@ def fetch_and_process_changesets(seq_start, seq_end, save_locally=False):
 
             # If the output file doesn't exist, process the sequence
             if not path.isfile(output_path):
-                output_changesets = process_sequence(sequence_number, save_db=False) # if user saves locally, don't save in db
+                output_changesets = process_sequence(sequence_number, save_db=False, cache_locally=cache_locally) # if user saves locally, don't save in db
                 with open(output_path, 'w') as output_file:
                     for output_changeset in output_changesets:
                         json.dump(output_changeset, output_file)
                         output_file.write('\n')
             else:
-                print("Sequence " + str(sequence_number) + " already processed.")
+                logger.info("Sequence %s already processed.", sequence_number)
                 # If the output file exists, read the changesets from the file
                 with open(output_path, 'r') as output_file:
                     output_changesets = [json.loads(line) for line in output_file]
         else:
             # If user doesn't want to save locally, save in db
-            output_changesets = process_sequence(sequence_number, save_db=True)
+            output_changesets = process_sequence(sequence_number, save_db=True, cache_locally=cache_locally)
 
         all_changesets.extend(output_changesets)
 

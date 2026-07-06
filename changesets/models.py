@@ -25,5 +25,16 @@ class Changeset(models.Model):
     sequence_from = models.IntegerField(null=True) # Sequence from which the changeset was fetched
     history = models.JSONField(null=True, default=list) # Stores the history of the changeset
 
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['closed_at']),
+            models.Index(fields=['user']),
+            models.Index(fields=['created_by']),
+            models.Index(fields=['changes_count']),
+            models.Index(fields=['sequence_from']),
+        ]
+
     def __str__(self):
         return str(self.changeset_id)
