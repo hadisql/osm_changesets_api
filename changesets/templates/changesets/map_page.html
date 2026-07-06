@@ -3,42 +3,59 @@
 <head>
     <title>OSM Live Contributions Map</title>
     <meta charset="UTF-8">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🗺️</text></svg>">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
           integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
             integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <style>
+        :root {
+            --page-bg: #0a0b10; --panel-bg: #12141b; --input-bg: #0d0f16;
+            --text-rgb: 242,242,245; --surface-rgb: 255,255,255; --text0: #f2f2f5;
+            --accent: #2dd4ee; --live: #7ae096; --frozen: #f2b84b; --danger: #ff6b6b;
+        }
+        [data-theme="light"] {
+            --page-bg: #faf7f0; --panel-bg: #ffffff; --input-bg: #fffdf8;
+            --text-rgb: 34,30,24; --surface-rgb: 25,18,8; --text0: #241f16;
+            --live: #1e8f4d;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { height: 100%; font-family: system-ui, -apple-system, sans-serif; }
+        html, body { height: 100%; font-family: 'Space Grotesk', system-ui, sans-serif; }
+        body { background: var(--page-bg); color: var(--text0); }
         #topbar {
             position: relative; z-index: 1000; height: 56px;
-            display: flex; align-items: center; gap: 16px; padding: 0 16px;
-            background: #1f2937; color: #f9fafb; flex-wrap: nowrap; overflow-x: auto;
+            display: flex; align-items: center; gap: 16px; padding: 0 20px;
+            background: var(--panel-bg); border-bottom: 1px solid rgba(var(--surface-rgb), .08);
+            flex-wrap: nowrap; overflow-x: auto;
         }
-        #topbar h1 { font-size: 17px; font-weight: 600; white-space: nowrap; }
-        #topbar a { color: #93c5fd; text-decoration: none; font-size: 14px; white-space: nowrap; }
+        #topbar h1 { font-size: 16px; font-weight: 600; white-space: nowrap; letter-spacing: -.01em; }
+        #topbar a { color: var(--accent); text-decoration: none; font-size: 12.5px; white-space: nowrap; }
         #topbar a:hover { text-decoration: underline; }
-        #live-dot {
-            display: inline-block; width: 9px; height: 9px; border-radius: 50%;
-            background: #22c55e; margin-right: 6px; animation: pulse 1.6s infinite;
-        }
-        #live-dot.stale { background: #f59e0b; animation: none; }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
-        #status { font-size: 13.5px; color: #d1d5db; white-space: nowrap; }
-        #map { height: calc(100% - 56px); width: 100%; }
+        #status { display: flex; align-items: center; gap: 8px; background: var(--page-bg);
+                  border: 1px solid rgba(var(--surface-rgb), .08); border-radius: 20px; padding: 6px 12px; }
+        #live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); animation: pulse 2s infinite; }
+        #live-dot.stale { background: var(--frozen); animation: none; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+        #status-text { font-size: 12px; font-family: 'JetBrains Mono', monospace; color: rgba(var(--text-rgb), .8); white-space: nowrap; }
+        #theme-toggle { background: var(--page-bg); border: 1px solid rgba(var(--surface-rgb), .08);
+                        color: var(--text0); border-radius: 8px; padding: 5px 10px; font-size: 12px;
+                        font-weight: 600; cursor: pointer; font-family: inherit; white-space: nowrap; }
+        #map { height: calc(100% - 56px); width: 100%; background: var(--input-bg); }
+        [data-theme="dark"] .leaflet-tile { filter: invert(1) hue-rotate(180deg) brightness(.95) saturate(.55) contrast(.9); }
         #legend {
             position: absolute; bottom: 18px; left: 12px; z-index: 1000;
-            background: rgba(255,255,255,.94); border-radius: 8px; padding: 10px 13px;
-            font-size: 12.5px; box-shadow: 0 1px 6px rgba(0,0,0,.25); line-height: 1.75;
+            background: rgba(10,11,16,.7); backdrop-filter: blur(6px); border: 1px solid rgba(255,255,255,.08);
+            border-radius: 9px; padding: 10px 13px; font-size: 11px; line-height: 1.9; color: rgba(242,242,245,.75);
         }
-        #legend .swatch {
-            display: inline-block; width: 11px; height: 11px; border-radius: 2px;
-            margin-right: 7px; vertical-align: -1px;
-        }
-        .popup-body { font-size: 13px; line-height: 1.5; max-width: 240px; }
-        .popup-body .comment { font-style: italic; color: #374151; margin: 4px 0; }
-        .popup-body .meta { color: #6b7280; font-size: 12px; }
+        [data-theme="light"] #legend { background: rgba(255,255,255,.85); border-color: rgba(25,18,8,.1); color: rgba(34,30,24,.75); }
+        #legend .swatch { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; vertical-align: -1px; }
+        #legend .swatch.suspect { background: transparent; border: 1.5px dashed var(--danger); width: 11px; }
+        .popup-body { font-size: 13px; line-height: 1.5; max-width: 240px; font-family: 'Space Grotesk', system-ui, sans-serif; }
+        .popup-body .comment { font-style: italic; color: #555; margin: 4px 0; }
+        .popup-body .meta { color: #6b7280; font-size: 12px; font-family: 'JetBrains Mono', monospace; }
         .spacer { flex: 1; }
     </style>
 </head>
@@ -47,38 +64,42 @@
         <h1>🗺️ OSM Live Contributions</h1>
         <span id="status"><span id="live-dot"></span><span id="status-text">loading…</span></span>
         <span class="spacer"></span>
-        <a href="{% url 'api-landing-page' %}">Home</a>
+        <a href="{% url 'api-landing-page' %}">Dashboard</a>
         <a href="/api/changesets/">API</a>
-        <a href="/api/docs/">Docs</a>
+        <a href="{% url 'api-docs' %}">Docs</a>
+        <button id="theme-toggle">☀ Light</button>
     </div>
     <div id="map"></div>
     <div id="legend"></div>
 
     <script>
+        'use strict';
         const POLL_INTERVAL_MS = 30000;   // the replication stream produces one sequence/minute
         const MAX_RECTANGLES = 400;       // oldest rectangles are dropped beyond this
         const MAX_BBOX_DEGREES = 45;      // skip world-spanning bulk edits (they hide everything else)
         const STALE_AFTER_MIN = 10;       // warn when the newest data is older than this
 
-        const EDITOR_COLORS = [
-            ['iD',             '#2563eb'],
-            ['JOSM',           '#dc2626'],
-            ['StreetComplete', '#16a34a'],
-            ['Rapid',          '#9333ea'],
-            ['Other',          '#6b7280'],
-        ];
+        const EDITOR_COLORS = { iD: '#6ea8fe', JOSM: '#4fd1c5', StreetComplete: '#7bd88f', Rapid: '#f2b84b', Other: '#93a0b4' };
+
+        /* theme (shared with the dashboard via localStorage) */
+        const root = document.documentElement;
+        function applyTheme(theme) {
+            root.setAttribute('data-theme', theme);
+            document.getElementById('theme-toggle').textContent = theme === 'dark' ? '☀ Light' : '☾ Dark';
+            localStorage.setItem('osm-obs-theme', theme);
+        }
+        applyTheme(localStorage.getItem('osm-obs-theme') || 'dark');
+        document.getElementById('theme-toggle').addEventListener('click', () =>
+            applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
 
         function editorFamily(createdBy) {
             if (!createdBy) return 'Other';
-            for (const [name] of EDITOR_COLORS) {
+            for (const name of Object.keys(EDITOR_COLORS)) {
                 if (name !== 'Other' && createdBy.toLowerCase().startsWith(name.toLowerCase())) return name;
             }
             return 'Other';
         }
-        function editorColor(family) {
-            const entry = EDITOR_COLORS.find(([name]) => name === family);
-            return entry ? entry[1] : '#6b7280';
-        }
+        function isSuspect(cs) { return (cs.suspicion_score ?? 0) >= 50 || (cs.ml_score ?? 0) >= 99; }
 
         const map = L.map('map', { worldCopyJump: true }).setView([25, 10], 2);
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -90,8 +111,9 @@
         }).addTo(map);
 
         document.getElementById('legend').innerHTML =
-            EDITOR_COLORS.map(([name, color]) =>
-                `<div><span class="swatch" style="background:${color}"></span>${name}</div>`).join('');
+            Object.entries(EDITOR_COLORS).map(([name, color]) =>
+                `<div><span class="swatch" style="background:${color}"></span>${name}</div>`).join('')
+            + '<div><span class="swatch suspect"></span>Suspect</div>';
 
         const drawnIds = new Set();
         const rectangles = [];   // insertion order, oldest first
@@ -101,9 +123,11 @@
         function popupHtml(cs) {
             const created = new Date(cs.created_at).toLocaleString();
             const comment = cs.comment ? `<div class="comment">“${escapeHtml(cs.comment)}”</div>` : '';
+            const suspect = isSuspect(cs)
+                ? `<div style="color:#e05555;font-size:11px;margin-top:2px">⚑ suspect — rules ${cs.suspicion_score ?? '—'} · ML ${cs.ml_score == null ? '—' : Math.round(cs.ml_score)}</div>` : '';
             return `<div class="popup-body">
                 <strong><a href="https://www.openstreetmap.org/user/${encodeURIComponent(cs.user)}" target="_blank" rel="noopener">${escapeHtml(cs.user || 'unknown')}</a></strong>
-                ${comment}
+                ${comment}${suspect}
                 <div class="meta">${escapeHtml(cs.created_by || 'unknown editor')} · ${cs.changes_count ?? '?'} edit(s)<br>
                 ${created}<br>
                 <a href="https://www.openstreetmap.org/changeset/${cs.changeset_id}" target="_blank" rel="noopener">changeset ${cs.changeset_id} ↗</a></div>
@@ -122,15 +146,18 @@
             if ((cs.max_lon - cs.min_lon) > MAX_BBOX_DEGREES ||
                 (cs.max_lat - cs.min_lat) > MAX_BBOX_DEGREES) return false;
 
-            const color = editorColor(editorFamily(cs.created_by));
+            const color = EDITOR_COLORS[editorFamily(cs.created_by)];
+            const suspect = isSuspect(cs);
+            const style = suspect
+                ? { color: '#ff6b6b', weight: highlight ? 2.5 : 1.5, dashArray: '4 3', fillOpacity: .07 }
+                : { color, weight: highlight ? 2.5 : 1.2, fillOpacity: highlight ? .25 : .08 };
             // point-like bboxes (single node edits) get a small circle instead of an invisible rectangle
             let layer;
             if ((cs.max_lon - cs.min_lon) < 1e-4 && (cs.max_lat - cs.min_lat) < 1e-4) {
                 layer = L.circleMarker([(cs.min_lat + cs.max_lat) / 2, (cs.min_lon + cs.max_lon) / 2],
-                                       { radius: 4, color, weight: 1.5, fillOpacity: .5 });
+                                       { ...style, radius: 4, fillOpacity: .5 });
             } else {
-                layer = L.rectangle([[cs.min_lat, cs.min_lon], [cs.max_lat, cs.max_lon]],
-                                    { color, weight: highlight ? 2.5 : 1.2, fillOpacity: highlight ? .25 : .08 });
+                layer = L.rectangle([[cs.min_lat, cs.min_lon], [cs.max_lat, cs.max_lon]], style);
             }
             layer.bindPopup(popupHtml(cs));
             layer.addTo(map);

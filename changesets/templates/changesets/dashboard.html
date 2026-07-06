@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>OSM Live Observatory</title>
+    <meta charset="UTF-8">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌍</text></svg>">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <style>
+        :root {
+            --page-bg: #0a0b10; --panel-bg: #12141b; --card-bg: #191c25; --input-bg: #0d0f16;
+            --text-rgb: 242,242,245; --surface-rgb: 255,255,255; --text0: #f2f2f5;
+            --accent: #2dd4ee; --accent-text: #062024; --url-green: #7ae096;
+            --live: #7ae096; --frozen: #f2b84b; --danger: #ff6b6b; --danger-soft: #ff9b9b;
+        }
+        [data-theme="light"] {
+            --page-bg: #faf7f0; --panel-bg: #ffffff; --card-bg: #f4f1ea; --input-bg: #fffdf8;
+            --text-rgb: 34,30,24; --surface-rgb: 25,18,8; --text0: #241f16;
+            --url-green: #1e8f4d; --live: #1e8f4d;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--page-bg); color: var(--text0);
+            font-family: 'Space Grotesk', system-ui, sans-serif;
+            padding: 36px 40px 56px; min-height: 100vh;
+            transition: background .25s ease, color .25s ease;
+        }
+        a { color: var(--accent); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .panel {
+            background: var(--panel-bg); border: 1px solid rgba(var(--surface-rgb), .08);
+            border-radius: 14px;
+        }
+        .section-title { font-size: 13px; font-weight: 600; }
+        .micro-label {
+            font-size: 11.5px; color: rgba(var(--text-rgb), .45);
+            text-transform: uppercase; letter-spacing: .06em;
+        }
+        button { font-family: inherit; cursor: pointer; border: none; }
+
+        /* header */
+        header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+        header h1 { font-size: 26px; font-weight: 700; letter-spacing: -.01em; }
+        header .subtitle { font-size: 13px; color: rgba(var(--text-rgb), .5); margin-top: 4px; }
+        .header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+        .header-links { display: flex; gap: 14px; font-size: 12.5px; }
+        .status-pill {
+            display: flex; align-items: center; gap: 8px; background: var(--panel-bg);
+            border: 1px solid rgba(var(--surface-rgb), .08); border-radius: 20px; padding: 7px 14px;
+        }
+        .status-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--live); animation: pulse-live 2s infinite; }
+        .status-pill.frozen .dot { background: var(--frozen); animation: pulse-frozen 2s infinite; }
+        .status-pill.error .dot { background: var(--danger); animation: none; }
+        .status-pill .label { font-size: 12.5px; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
+        @keyframes pulse-live { 0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(122,224,150,.55);} 50% { opacity:.75; box-shadow: 0 0 0 7px rgba(122,224,150,0);} }
+        @keyframes pulse-frozen { 0%,100% { opacity:1; box-shadow: 0 0 0 0 rgba(242,184,75,.5);} 50% { opacity:.8; box-shadow: 0 0 0 7px rgba(242,184,75,0);} }
+        #theme-toggle {
+            background: var(--panel-bg); border: 1px solid rgba(var(--surface-rgb), .08);
+            color: var(--text0); border-radius: 8px; padding: 6px 12px; font-size: 12px; font-weight: 600;
+        }
+
+        /* banners */
+        .banner { border-radius: 10px; padding: 12px 18px; margin-bottom: 24px; font-size: 12.5px; }
+        #frozen-banner { background: rgba(242,184,75,.08); border: 1px solid rgba(242,184,75,.25); color: #d19b2f; font-family: 'JetBrains Mono', monospace; }
+        #error-banner {
+            background: rgba(255,107,107,.1); border: 1px solid rgba(255,107,107,.28);
+            display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 20px;
+        }
+        #error-banner .title { font-size: 14px; font-weight: 600; color: var(--danger-soft); }
+        #error-banner .detail { font-size: 12.5px; color: rgba(var(--text-rgb), .55); margin-top: 2px; }
+        #error-banner button { background: var(--danger); color: #1a0808; font-size: 12.5px; font-weight: 700; padding: 9px 16px; border-radius: 7px; }
+
+        /* empty state */
+        #state-empty { border: 1px dashed rgba(var(--surface-rgb), .14); border-radius: 14px; padding: 64px 40px; text-align: center; }
+        #state-empty .title { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+        #state-empty .hint { font-size: 13px; color: rgba(var(--text-rgb), .5); max-width: 440px; margin: 0 auto 20px; }
+        #state-empty code {
+            display: inline-flex; background: var(--panel-bg); border: 1px solid rgba(var(--surface-rgb), .1);
+            border-radius: 8px; padding: 10px 16px; font-family: 'JetBrains Mono', monospace; font-size: 12.5px; color: var(--accent);
+        }
+
+        /* skeletons */
+        .skeleton {
+            border-radius: 12px; background: linear-gradient(90deg, rgba(var(--surface-rgb),.05) 25%, rgba(var(--surface-rgb),.1) 40%, rgba(var(--surface-rgb),.05) 55%);
+            background-size: 300px 100%; animation: shimmer 1.4s infinite linear;
+        }
+        @keyframes shimmer { 0% { background-position: -300px 0; } 100% { background-position: calc(300px + 100%) 0; } }
+        #state-loading .row4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 20px; }
+        #state-loading .row3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; }
+
+        /* tiles */
+        #tiles { display: grid; grid-template-columns: repeat(4,1fr); gap: 16px; margin-bottom: 24px; }
+        .tile { background: var(--panel-bg); border: 1px solid rgba(var(--surface-rgb),.08); border-radius: 12px; padding: 18px 20px; animation: tile-in .5s ease both; }
+        .tile .value { font-family: 'JetBrains Mono', monospace; font-size: 26px; font-weight: 600; letter-spacing: -.01em; margin-top: 8px; }
+        .tile .sub { font-size: 11.5px; color: var(--url-green); margin-top: 4px; min-height: 14px; }
+        @keyframes tile-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* map + feed */
+        #map-feed { display: grid; grid-template-columns: 1fr 340px; gap: 16px; margin-bottom: 24px; }
+        #map-panel { position: relative; overflow: hidden; height: 460px; padding: 0; }
+        #map { position: absolute; inset: 0; background: var(--input-bg); }
+        [data-theme="dark"] .leaflet-tile { filter: invert(1) hue-rotate(180deg) brightness(.95) saturate(.55) contrast(.9); }
+        .map-note { position: absolute; z-index: 500; top: 16px; left: 20px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: rgba(var(--text-rgb), .55); background: rgba(var(--surface-rgb), .06); backdrop-filter: blur(4px); padding: 3px 8px; border-radius: 6px; pointer-events: none; }
+        #expand-btn {
+            position: absolute; z-index: 500; top: 14px; right: 16px;
+            background: var(--panel-bg); border: 1px solid rgba(var(--surface-rgb), .14) !important;
+            color: var(--text0); border-radius: 7px; padding: 7px 10px; font-size: 12px;
+        }
+        #map-legend {
+            position: absolute; z-index: 500; bottom: 16px; left: 20px; display: flex; gap: 14px; flex-wrap: wrap;
+            background: rgba(10,11,16,.65); backdrop-filter: blur(6px); padding: 8px 14px; border-radius: 9px;
+            border: 1px solid rgba(255,255,255,.08); color: rgba(242,242,245,.7);
+        }
+        [data-theme="light"] #map-legend { background: rgba(255,255,255,.8); border-color: rgba(25,18,8,.1); color: rgba(34,30,24,.7); }
+        #map-legend div { display: flex; align-items: center; gap: 6px; font-size: 11px; }
+        #map-legend .swatch { width: 8px; height: 8px; border-radius: 2px; }
+        #map-legend .swatch.suspect { width: 10px; background: transparent; border: 1.5px dashed var(--danger); }
+
+        #feed-panel { height: 460px; display: flex; flex-direction: column; padding: 14px; }
+        #feed-panel .micro-label { margin-bottom: 10px; padding: 0 4px; font-size: 12px; font-weight: 600; }
+        #feed { overflow-y: auto; display: flex; flex-direction: column; gap: 8px; flex: 1; scrollbar-width: thin; }
+        .feed-card {
+            display: flex; gap: 10px; background: var(--card-bg); border: 1px solid rgba(var(--surface-rgb), .06);
+            border-radius: 10px; padding: 10px 12px; cursor: pointer;
+        }
+        .feed-card.fresh { animation: card-in .5s ease both; }
+        @keyframes card-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+        .feed-card .avatar { width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: #0a0b10; flex-shrink: 0; }
+        .feed-card .body { min-width: 0; flex: 1; }
+        .feed-card .row1 { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+        .feed-card .name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .feed-card .ago { font-size: 10.5px; color: rgba(var(--text-rgb), .4); font-family: 'JetBrains Mono', monospace; flex-shrink: 0; }
+        .feed-card .comment { font-size: 11.5px; color: rgba(var(--text-rgb), .55); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin: 2px 0 5px; }
+        .feed-card .meta { display: flex; align-items: center; gap: 6px; }
+        .feed-card .editor-chip { font-size: 10px; padding: 2px 6px; border-radius: 4px; }
+        .feed-card .country { font-size: 10px; color: rgba(var(--text-rgb), .4); font-family: 'JetBrains Mono', monospace; }
+        .feed-card .suspect-chip { font-size: 9.5px; padding: 2px 5px; border-radius: 4px; background: rgba(255,107,107,.16); color: var(--danger-soft); margin-left: auto; }
+
+        /* timeline */
+        #timeline-panel { padding: 20px 24px; margin-bottom: 24px; }
+        #timeline-panel .head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+        #timeline-panel .range { font-size: 11px; color: rgba(var(--text-rgb), .4); font-family: 'JetBrains Mono', monospace; }
+        #timeline-bars { display: flex; align-items: flex-end; gap: 5px; height: 100px; }
+        #timeline-bars .bar { flex: 1; background: linear-gradient(180deg, var(--accent), rgba(45,212,238,.25)); border-radius: 3px 3px 0 0; min-height: 4px; position: relative; }
+        #timeline-bars .bar:hover::after {
+            content: attr(data-tip); position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%);
+            background: var(--card-bg); border: 1px solid rgba(var(--surface-rgb), .14); color: var(--text0);
+            font-size: 10px; font-family: 'JetBrains Mono', monospace; padding: 4px 7px; border-radius: 5px; white-space: nowrap; z-index: 10;
+        }
+        #timeline-labels { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; color: rgba(var(--text-rgb), .35); font-family: 'JetBrains Mono', monospace; }
+
+        /* distributions */
+        #distros { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+        #distros .panel { padding: 20px; }
+        #distros .section-title { margin-bottom: 16px; }
+        .donut-wrap { display: flex; align-items: center; gap: 20px; }
+        #donut { width: 110px; height: 110px; border-radius: 50%; flex-shrink: 0; position: relative; }
+        #donut::after { content: ''; position: absolute; inset: 16px; background: var(--panel-bg); border-radius: 50%; }
+        .donut-legend { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+        .donut-legend .row { display: flex; align-items: center; gap: 7px; font-size: 11.5px; }
+        .donut-legend .swatch { width: 8px; height: 8px; border-radius: 2px; }
+        .donut-legend .key { color: rgba(var(--text-rgb), .65); flex: 1; }
+        .donut-legend .pct { font-family: 'JetBrains Mono', monospace; color: rgba(var(--text-rgb), .85); }
+        .hbar-list { display: flex; flex-direction: column; gap: 12px; }
+        .hbar .labels { display: flex; justify-content: space-between; font-size: 11.5px; margin-bottom: 5px; }
+        .hbar .labels .key { color: rgba(var(--text-rgb), .7); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .hbar .labels .count { color: rgba(var(--text-rgb), .45); font-family: 'JetBrains Mono', monospace; }
+        .hbar .track { height: 6px; background: rgba(var(--surface-rgb), .06); border-radius: 3px; }
+        .hbar .fill { height: 100%; border-radius: 3px; }
+
+        /* query builder */
+        #query-panel { padding: 24px; margin-bottom: 24px; }
+        #query-panel .hint { font-size: 11.5px; color: rgba(var(--text-rgb), .45); margin: 4px 0 18px; }
+        #query-fields { display: grid; grid-template-columns: repeat(6,1fr); gap: 12px; margin-bottom: 16px; }
+        #query-fields label { display: block; font-size: 10.5px; color: rgba(var(--text-rgb), .4); margin-bottom: 5px; }
+        #query-fields input, #query-fields select {
+            width: 100%; background: var(--input-bg); border: 1px solid rgba(var(--surface-rgb), .1);
+            color: var(--text0); border-radius: 7px; padding: 8px 10px; font-size: 12px; font-family: 'JetBrains Mono', monospace;
+            color-scheme: dark;
+        }
+        [data-theme="light"] #query-fields input, [data-theme="light"] #query-fields select { color-scheme: light; }
+        #slider-row { margin-bottom: 18px; }
+        #slider-row .labels { display: flex; justify-content: space-between; font-size: 10.5px; color: rgba(var(--text-rgb), .4); margin-bottom: 6px; }
+        #slider-row .val { font-family: 'JetBrains Mono', monospace; color: var(--accent); }
+        #slider-row input { width: 100%; accent-color: var(--accent); }
+        #url-row { display: flex; align-items: center; gap: 10px; }
+        #query-url {
+            flex: 1; background: var(--input-bg); border: 1px solid rgba(var(--surface-rgb), .1); border-radius: 8px;
+            padding: 12px 14px; font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--url-green);
+            overflow-x: auto; white-space: nowrap;
+        }
+        #copy-btn { background: var(--card-bg); color: var(--text0); border: 1px solid rgba(var(--surface-rgb), .12); border-radius: 8px; padding: 12px 16px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+        #open-btn { display: inline-block; background: var(--accent); color: var(--accent-text); border-radius: 8px; padding: 12px 16px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+        #open-btn:hover { text-decoration: none; }
+
+        /* anomaly panel */
+        #anomaly-section { border-top: 1px solid rgba(var(--surface-rgb), .08); padding-top: 20px; }
+        #anomaly-section .head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+        #anomaly-section .head .sub { font-size: 11px; color: rgba(var(--text-rgb), .35); }
+        #anomaly-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
+        #anomaly-table { border-radius: 12px; padding: 6px 16px; }
+        .arow { display: grid; grid-template-columns: 24px 1.2fr 60px 60px 1.6fr 70px; gap: 8px; padding: 9px 0; font-size: 11.5px; border-bottom: 1px solid rgba(var(--surface-rgb), .04); align-items: center; }
+        .arow.header { font-size: 10px; color: rgba(var(--text-rgb), .35); text-transform: uppercase; letter-spacing: .04em; border-bottom: 1px solid rgba(var(--surface-rgb), .06); padding: 10px 0; }
+        .arow .rank { color: rgba(var(--text-rgb), .35); font-family: 'JetBrains Mono', monospace; }
+        .arow .who { font-family: 'JetBrains Mono', monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .arow .ml { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+        .arow .rules { font-family: 'JetBrains Mono', monospace; color: rgba(var(--text-rgb), .5); }
+        .arow .chips { display: flex; gap: 4px; flex-wrap: wrap; }
+        .arow .chip { font-size: 9.5px; padding: 2px 6px; border-radius: 4px; background: rgba(255,107,107,.12); color: #e07070; white-space: nowrap; }
+        .arow .view { font-size: 11px; text-align: right; }
+        #scatter-panel { border-radius: 12px; padding: 16px; }
+        #scatter-panel .axis-label { font-size: 11px; color: rgba(var(--text-rgb), .4); margin-bottom: 10px; }
+        #scatter { position: relative; height: 180px; border-left: 1px solid rgba(var(--surface-rgb), .1); border-bottom: 1px solid rgba(var(--surface-rgb), .1); }
+        #scatter .pt { position: absolute; width: 7px; height: 7px; border-radius: 50%; transform: translate(-50%, 50%); }
+        #scatter .callout { position: absolute; font-size: 9.5px; color: var(--danger-soft); white-space: nowrap; line-height: 1.3; transform: translate(-40%, -110%); background: rgba(18,20,27,.9); border: 1px solid rgba(255,107,107,.25); padding: 3px 6px; border-radius: 5px; }
+        [data-theme="light"] #scatter .callout { background: rgba(255,255,255,.92); }
+        #scatter-legend { display: flex; gap: 14px; margin-top: 10px; font-size: 10px; color: rgba(var(--text-rgb), .4); }
+        #scatter-legend div { display: flex; align-items: center; gap: 5px; }
+        #scatter-legend .swatch { width: 7px; height: 7px; border-radius: 50%; }
+
+        .hidden { display: none !important; }
+
+        /* mobile */
+        @media (max-width: 900px) {
+            body { padding: 20px 16px 40px; }
+            header { flex-direction: column; }
+            .header-right { align-items: flex-start; }
+            #tiles { grid-template-columns: 1fr 1fr; }
+            #map-feed { grid-template-columns: 1fr; }
+            #map-panel { height: 240px; }
+            #feed-panel { height: 340px; }
+            #distros { grid-template-columns: 1fr; }
+            #query-fields { grid-template-columns: 1fr 1fr; }
+            #url-row { flex-wrap: wrap; }
+            #anomaly-grid { grid-template-columns: 1fr; }
+            .arow { grid-template-columns: 24px 1fr 50px 50px 60px; }
+            .arow .chips { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div>
+            <h1>OSM Live Observatory</h1>
+            <div class="subtitle">Real-time map of global OpenStreetMap contributions &amp; anomaly detection</div>
+        </div>
+        <div class="header-right">
+            <div id="status-pill" class="status-pill"><span class="dot"></span><span class="label" id="status-label">Loading…</span></div>
+            <div style="display:flex;gap:8px;align-items:center">
+                <div class="header-links">
+                    <a href="{% url 'live-map' %}">Live map</a>
+                    <a href="/api/changesets/">API</a>
+                    <a href="{% url 'api-docs' %}">Docs</a>
+                </div>
+                <button id="theme-toggle">☀ Light</button>
+            </div>
+        </div>
+    </header>
+
+    <div id="error-banner" class="banner hidden">
+        <div>
+            <div class="title">Couldn't reach the API</div>
+            <div class="detail">The dashboard will retry automatically every 30s. <span id="error-detail"></span></div>
+        </div>
+        <button id="retry-btn">Retry now</button>
+    </div>
+    <div id="frozen-banner" class="banner hidden"></div>
+
+    <div id="state-loading">
+        <div class="row4">
+            <div class="skeleton" style="height:78px"></div><div class="skeleton" style="height:78px"></div>
+            <div class="skeleton" style="height:78px"></div><div class="skeleton" style="height:78px"></div>
+        </div>
+        <div class="skeleton" style="height:420px;border-radius:14px;margin-bottom:20px"></div>
+        <div class="row3">
+            <div class="skeleton" style="height:220px;border-radius:14px"></div>
+            <div class="skeleton" style="height:220px;border-radius:14px"></div>
+            <div class="skeleton" style="height:220px;border-radius:14px"></div>
+        </div>
+    </div>
+
+    <div id="state-empty" class="hidden">
+        <div class="title">No changesets ingested yet</div>
+        <div class="hint">Start the ingestion worker to begin streaming the global OSM changeset feed into this observatory.</div>
+        <code>$ python manage.py ingest_changesets --follow</code>
+    </div>
+
+    <div id="content" class="hidden">
+        <div id="tiles"></div>
+
+        <div id="map-feed">
+            <div id="map-panel" class="panel">
+                <div id="map"></div>
+                <div class="map-note">Leaflet · OSM tiles · live changesets</div>
+                <a id="expand-btn" href="{% url 'live-map' %}">⤢ Expand</a>
+                <div id="map-legend"></div>
+            </div>
+            <div id="feed-panel" class="panel">
+                <div class="micro-label">Live contribution feed</div>
+                <div id="feed"></div>
+            </div>
+        </div>
+
+        <div id="timeline-panel" class="panel">
+            <div class="head">
+                <div class="section-title">Changesets per hour</div>
+                <div class="range" id="timeline-range"></div>
+            </div>
+            <div id="timeline-bars"></div>
+            <div id="timeline-labels"></div>
+        </div>
+
+        <div id="distros">
+            <div class="panel">
+                <div class="section-title">Editor share</div>
+                <div class="donut-wrap">
+                    <div id="donut"></div>
+                    <div class="donut-legend" id="donut-legend"></div>
+                </div>
+            </div>
+            <div class="panel">
+                <div class="section-title">Top campaign hashtags</div>
+                <div class="hbar-list" id="hashtag-bars"></div>
+            </div>
+            <div class="panel">
+                <div class="section-title">Top countries</div>
+                <div class="hbar-list" id="country-bars"></div>
+            </div>
+        </div>
+
+        <div id="query-panel" class="panel">
+            <div class="section-title">Query builder</div>
+            <div class="hint">Build a filtered request against the changesets API</div>
+            <div id="query-fields">
+                <div><label for="q-user">Contributor</label><input id="q-user" placeholder="username"></div>
+                <div><label for="q-country">Country</label><select id="q-country"><option value="">Any</option></select></div>
+                <div><label for="q-editor">Editor</label>
+                    <select id="q-editor">
+                        <option value="">Any</option><option>iD</option><option>JOSM</option>
+                        <option>StreetComplete</option><option>Rapid</option>
+                    </select></div>
+                <div><label for="q-hashtag">Hashtag</label><input id="q-hashtag" placeholder="#hotosm-…"></div>
+                <div><label for="q-since">Since</label><input id="q-since" type="date"></div>
+                <div><label for="q-until">Until</label><input id="q-until" type="date"></div>
+            </div>
+            <div id="slider-row">
+                <div class="labels"><span>Min. suspicion score</span><span class="val" id="q-suspicion-val">0</span></div>
+                <input id="q-suspicion" type="range" min="0" max="100" value="0">
+            </div>
+            <div id="url-row">
+                <div id="query-url" class="mono">/api/changesets/</div>
+                <button id="copy-btn">Copy</button>
+                <a id="open-btn" href="/api/changesets/" target="_blank" rel="noopener">Open ↗</a>
+            </div>
+        </div>
+
+        <div id="anomaly-section">
+            <div class="head">
+                <div class="micro-label" style="font-size:12px;font-weight:600">Anomaly detection</div>
+                <div class="sub">ML percentile vs. rule-based scoring</div>
+            </div>
+            <div id="anomaly-grid">
+                <div id="anomaly-table" class="panel">
+                    <div class="arow header"><div>#</div><div>Contributor</div><div>ML</div><div>Rules</div><div class="chips-h">Triggered</div><div></div></div>
+                    <div id="anomaly-rows"></div>
+                </div>
+                <div id="scatter-panel" class="panel">
+                    <div class="axis-label">Edit volume (log) × ML anomaly score</div>
+                    <div id="scatter"></div>
+                    <div id="scatter-legend">
+                        <div><span class="swatch" style="background:var(--danger)"></span>rule triggered</div>
+                        <div><span class="swatch" style="background:var(--accent)"></span>ML only</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        'use strict';
+        const EDITOR_COLORS = { iD: '#6ea8fe', JOSM: '#4fd1c5', StreetComplete: '#7bd88f', Rapid: '#f2b84b', Other: '#93a0b4' };
+        const POLL_MS = 30000, FEED_TICK_MS = 4000, STALE_AFTER_MIN = 10;
+        const MAX_BBOX_DEGREES = 45, MAX_RECTANGLES = 300, MAX_FEED_CARDS = 30;
+
+        const $ = id => document.getElementById(id);
+        function esc(text) { const d = document.createElement('div'); d.textContent = text ?? ''; return d.innerHTML; }
+        function fmt(n) { return n == null ? '—' : Number(n).toLocaleString('en-US'); }
+        const countryNames = new Intl.DisplayNames(['en'], { type: 'region' });
+        function countryName(cc) { try { return countryNames.of(cc) || cc; } catch { return cc; } }
+        function flagEmoji(cc) {
+            if (!cc || cc.length !== 2) return '';
+            return String.fromCodePoint(...cc.toUpperCase().split('').map(c => 0x1F1E6 + c.charCodeAt(0) - 65));
+        }
+        function editorFamily(createdBy) {
+            if (!createdBy) return 'Other';
+            for (const name of Object.keys(EDITOR_COLORS)) {
+                if (name !== 'Other' && createdBy.toLowerCase().startsWith(name.toLowerCase())) return name;
+            }
+            return 'Other';
+        }
+        function timeAgo(iso) {
+            const s = Math.max(0, (Date.now() - new Date(iso)) / 1000);
+            if (s < 60) return `${Math.round(s)}s ago`;
+            if (s < 3600) return `${Math.round(s / 60)}m ago`;
+            if (s < 86400) return `${Math.round(s / 3600)}h ago`;
+            return `${Math.round(s / 86400)}d ago`;
+        }
+        function isSuspect(cs) { return (cs.suspicion_score ?? 0) >= 50 || (cs.ml_score ?? 0) >= 99; }
+        async function getJSON(url) {
+            const r = await fetch(url);
+            if (!r.ok) throw new Error(`API returned ${r.status}`);
+            return r.json();
+        }
+
+        /* ---------- theme ---------- */
+        const root = document.documentElement;
+        function applyTheme(theme) {
+            root.setAttribute('data-theme', theme);
+            $('theme-toggle').textContent = theme === 'dark' ? '☀ Light' : '☾ Dark';
+            localStorage.setItem('osm-obs-theme', theme);
+        }
+        applyTheme(localStorage.getItem('osm-obs-theme') || 'dark');
+        $('theme-toggle').addEventListener('click', () =>
+            applyTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+
+        /* ---------- map ---------- */
+        let map, rectangles = [], drawnIds = new Set();
+        function initMap() {
+            map = L.map('map', { scrollWheelZoom: false, worldCopyJump: true, zoomControl: false }).setView([25, 10], 2);
+            L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+                referrerPolicy: 'strict-origin-when-cross-origin',
+            }).addTo(map);
+            const legend = $('map-legend');
+            legend.innerHTML = Object.entries(EDITOR_COLORS)
+                .map(([name, color]) => `<div><span class="swatch" style="background:${color}"></span>${name}</div>`)
+                .join('') + '<div><span class="swatch suspect"></span>Suspect</div>';
+        }
+        function drawChangeset(cs) {
+            if (drawnIds.has(cs.changeset_id) || cs.min_lat == null) return;
+            if ((cs.max_lon - cs.min_lon) > MAX_BBOX_DEGREES || (cs.max_lat - cs.min_lat) > MAX_BBOX_DEGREES) return;
+            const color = EDITOR_COLORS[editorFamily(cs.created_by)];
+            const suspect = isSuspect(cs);
+            const opts = suspect
+                ? { color: '#ff6b6b', weight: 1.5, dashArray: '4 3', fillOpacity: .06 }
+                : { color, weight: 1.2, fillOpacity: .08 };
+            let layer;
+            if ((cs.max_lon - cs.min_lon) < 1e-4 && (cs.max_lat - cs.min_lat) < 1e-4) {
+                layer = L.circleMarker([(cs.min_lat + cs.max_lat) / 2, (cs.min_lon + cs.max_lon) / 2],
+                                       { ...opts, radius: 4, fillOpacity: .5 });
+            } else {
+                layer = L.rectangle([[cs.min_lat, cs.min_lon], [cs.max_lat, cs.max_lon]], opts);
+            }
+            layer.bindPopup(`<strong>${esc(cs.user || 'unknown')}</strong><br>${esc(cs.comment || '')}<br>
+                <a href="https://www.openstreetmap.org/changeset/${cs.changeset_id}" target="_blank" rel="noopener">changeset ${cs.changeset_id} ↗</a>`);
+            layer.addTo(map);
+            drawnIds.add(cs.changeset_id);
+            rectangles.push(layer);
+            while (rectangles.length > MAX_RECTANGLES) map.removeLayer(rectangles.shift());
+        }
+
+        /* ---------- feed ---------- */
+        const feedQueue = [];
+        function feedCard(cs, fresh) {
+            const family = editorFamily(cs.created_by);
+            const color = EDITOR_COLORS[family];
+            const card = document.createElement('div');
+            card.className = 'feed-card' + (fresh ? ' fresh' : '');
+            card.innerHTML = `
+                <div class="avatar" style="background:${color}">${esc((cs.user || '?').slice(0, 2).toUpperCase())}</div>
+                <div class="body">
+                    <div class="row1"><span class="name">${esc(cs.user || 'unknown')}</span><span class="ago">${timeAgo(cs.created_at)}</span></div>
+                    <div class="comment">${esc(cs.comment || 'no comment')}</div>
+                    <div class="meta">
+                        <span class="editor-chip" style="background:${color}22;color:${color}">${esc(family)}</span>
+                        <span class="country">${flagEmoji(cs.country_code)} ${esc(cs.country_code || '—')} · ${fmt(cs.changes_count)} edits</span>
+                        ${isSuspect(cs) ? '<span class="suspect-chip">⚑ suspect</span>' : ''}
+                    </div>
+                </div>`;
+            if (cs.min_lat != null) {
+                card.addEventListener('click', () =>
+                    map.flyToBounds([[cs.min_lat, cs.min_lon], [cs.max_lat, cs.max_lon]], { maxZoom: 12 }));
+            }
+            return card;
+        }
+        function pushFeedCard(cs, fresh) {
+            const feed = $('feed');
+            feed.prepend(feedCard(cs, fresh));
+            while (feed.children.length > MAX_FEED_CARDS) feed.lastChild.remove();
+        }
+        setInterval(() => { const cs = feedQueue.shift(); if (cs) { pushFeedCard(cs, true); drawChangeset(cs); } }, FEED_TICK_MS);
+
+        /* ---------- status & tiles ---------- */
+        function setStatus(mode, label) {
+            const pill = $('status-pill');
+            pill.className = 'status-pill' + (mode !== 'live' ? ' ' + mode : '');
+            $('status-label').textContent = label;
+            $('frozen-banner').classList.toggle('hidden', mode !== 'frozen');
+        }
+        function updateStatus(summary) {
+            const last = summary.last_created_at;
+            const ageMin = last ? (Date.now() - new Date(last)) / 60000 : Infinity;
+            if (ageMin > STALE_AFTER_MIN) {
+                const when = last ? new Date(last).toLocaleString() : 'never';
+                setStatus('frozen', `Frozen · ${last ? new Date(last).toISOString().slice(11, 16) + ' UTC' : '—'}`);
+                $('frozen-banner').textContent =
+                    `Data frozen since ${when} — the ingestion worker is not currently running. Figures below reflect the last completed window.`;
+            } else {
+                setStatus('live', 'Live');
+            }
+        }
+        function renderTiles(summary) {
+            const windowDays = summary.first_created_at && summary.last_created_at
+                ? Math.max(1, Math.round((new Date(summary.last_created_at) - new Date(summary.first_created_at)) / 86400000)) : null;
+            const tiles = [
+                { label: 'Changesets ingested', value: fmt(summary.total_changesets), sub: '' },
+                { label: 'Map edits', value: fmt(summary.total_edits), sub: '' },
+                { label: 'Unique contributors', value: fmt(summary.unique_users), sub: '' },
+                { label: 'Window covered', value: windowDays ? `${fmt(windowDays)}d` : '—',
+                  sub: summary.last_created_at ? 'to ' + new Date(summary.last_created_at).toLocaleDateString() : '' },
+            ];
+            $('tiles').innerHTML = tiles.map((t, i) => `
+                <div class="tile" style="animation-delay:${i * 70}ms">
+                    <div class="micro-label">${t.label}</div>
+                    <div class="value">${t.value}</div>
+                    <div class="sub">${esc(t.sub)}</div>
+                </div>`).join('');
+        }
+
+        /* ---------- timeline ---------- */
+        function renderTimeline(rows) {
+            const buckets = rows.slice(-24);
+            if (!buckets.length) return;
+            const max = Math.max(...buckets.map(b => b.changesets));
+            $('timeline-bars').innerHTML = buckets.map(b => {
+                const t = new Date(b.bucket);
+                const tip = `${t.toISOString().slice(5, 13).replace('T', ' ')}h — ${fmt(b.changesets)} changesets`;
+                return `<div class="bar" style="height:${Math.max(4, Math.round(b.changesets / max * 100))}%" data-tip="${tip}"></div>`;
+            }).join('');
+            const label = i => new Date(buckets[i].bucket).toISOString().slice(11, 16);
+            const mid = Math.floor(buckets.length / 2);
+            $('timeline-labels').innerHTML = `<span>${label(0)}</span><span>${label(mid)}</span><span>${label(buckets.length - 1)}</span>`;
+            $('timeline-range').textContent = `${buckets.length} hourly buckets · latest ingested window`;
+        }
+
+        /* ---------- distributions ---------- */
+        function renderEditors(editors, total) {
+            const top = editors.slice(0, 4);
+            const covered = top.reduce((sum, e) => sum + e.changesets, 0);
+            const rows = top.map(e => ({ key: editorFamily(e.editor) === 'Other' ? e.editor : e.editor, count: e.changesets }));
+            if (total > covered) rows.push({ key: 'Other', count: total - covered });
+            let cum = 0;
+            const stops = rows.map(r => {
+                const color = EDITOR_COLORS[editorFamily(r.key)] || EDITOR_COLORS.Other;
+                const pct = r.count / total * 100, start = cum;
+                cum += pct;
+                return { color, start, end: cum, pct, key: r.key };
+            });
+            $('donut').style.background = `conic-gradient(${stops.map(s => `${s.color} ${s.start}% ${s.end}%`).join(',')})`;
+            $('donut-legend').innerHTML = stops.map(s => `
+                <div class="row"><span class="swatch" style="background:${s.color}"></span>
+                <span class="key">${esc(s.key)}</span><span class="pct">${s.pct.toFixed(1)}%</span></div>`).join('');
+        }
+        function renderBars(elId, rows, color, keyFn) {
+            if (!rows.length) { $(elId).innerHTML = '<div style="font-size:11.5px;color:rgba(var(--text-rgb),.4)">No data yet</div>'; return; }
+            const max = Math.max(...rows.map(r => r.changesets));
+            $(elId).innerHTML = rows.map(r => `
+                <div class="hbar">
+                    <div class="labels"><span class="key">${keyFn(r)}</span><span class="count">${fmt(r.changesets)}</span></div>
+                    <div class="track"><div class="fill" style="width:${Math.round(r.changesets / max * 100)}%;background:${color}"></div></div>
+                </div>`).join('');
+        }
+
+        /* ---------- query builder ---------- */
+        const qIds = ['q-user', 'q-country', 'q-editor', 'q-hashtag', 'q-since', 'q-until', 'q-suspicion'];
+        function buildUrl() {
+            const params = new URLSearchParams();
+            const val = id => $(id).value.trim();
+            if (val('q-user')) params.set('user', val('q-user'));
+            if (val('q-country')) params.set('country', val('q-country'));
+            if (val('q-editor')) params.set('editor', val('q-editor'));
+            if (val('q-hashtag')) params.set('hashtag', val('q-hashtag').replace(/^#/, ''));
+            if (val('q-since')) params.set('created_after', val('q-since') + 'T00:00:00Z');
+            if (val('q-until')) params.set('created_before', val('q-until') + 'T23:59:59Z');
+            if (Number(val('q-suspicion')) > 0) params.set('min_suspicion', val('q-suspicion'));
+            const qs = params.toString();
+            return '/api/changesets/' + (qs ? '?' + qs : '');
+        }
+        function refreshUrl() {
+            const url = buildUrl();
+            $('query-url').textContent = url;
+            $('open-btn').href = url;
+            $('q-suspicion-val').textContent = $('q-suspicion').value;
+        }
+        qIds.forEach(id => $(id).addEventListener('input', refreshUrl));
+        $('copy-btn').addEventListener('click', async () => {
+            try { await navigator.clipboard.writeText(location.origin + buildUrl()); } catch {}
+            $('copy-btn').textContent = 'Copied ✓';
+            setTimeout(() => { $('copy-btn').textContent = 'Copy'; }, 1500);
+        });
+
+        /* ---------- anomalies ---------- */
+        function mlColor(ml) { return ml >= 90 ? 'var(--danger-soft)' : ml >= 80 ? '#d9a944' : 'var(--text0)'; }
+        function renderAnomalies(rows) {
+            $('anomaly-rows').innerHTML = rows.slice(0, 10).map((cs, i) => {
+                const flags = cs.suspicion_flags || [];
+                const chips = flags.slice(0, 2).map(f => `<span class="chip">${esc(f)}</span>`).join('')
+                    + (flags.length > 2 ? `<span class="chip">+${flags.length - 2}</span>` : '');
+                return `<div class="arow">
+                    <div class="rank">${i + 1}</div>
+                    <div class="who" title="${esc(cs.user)}">${esc(cs.user || 'unknown')}</div>
+                    <div class="ml" style="color:${mlColor(cs.ml_score ?? 0)}">${cs.ml_score == null ? '—' : Math.round(cs.ml_score)}</div>
+                    <div class="rules">${cs.suspicion_score ?? '—'}</div>
+                    <div class="chips">${chips}</div>
+                    <div class="view"><a href="https://www.openstreetmap.org/changeset/${cs.changeset_id}" target="_blank" rel="noopener">View ↗</a></div>
+                </div>`;
+            }).join('');
+        }
+        function renderScatter(rows) {
+            const pts = rows.filter(cs => cs.ml_score != null);
+            if (!pts.length) return;
+            const maxLog = Math.max(...pts.map(cs => Math.log1p(cs.changes_count || 0)), 1);
+            let callout = null;
+            const html = pts.map(cs => {
+                const x = Math.log1p(cs.changes_count || 0) / maxLog * 92 + 4;
+                const y = (cs.ml_score / 100) * 92 + 4;
+                const flagged = (cs.suspicion_score ?? 0) > 0;
+                if (!flagged && cs.ml_score >= 97 && (!callout || cs.ml_score > callout.ml)) callout = { x, y, ml: cs.ml_score };
+                return `<div class="pt" style="left:${x}%;bottom:${y}%;background:${flagged ? 'var(--danger)' : 'var(--accent)'}"></div>`;
+            }).join('');
+            const calloutHtml = callout
+                ? `<div class="callout" style="left:${Math.min(callout.x, 70)}%;bottom:${Math.min(callout.y + 4, 72)}%">ML flags this —<br>no rule fired</div>` : '';
+            $('scatter').innerHTML = html + calloutHtml;
+        }
+
+        /* ---------- orchestration ---------- */
+        let newestCreatedAt = null, started = false;
+        function showState(state) {
+            $('state-loading').classList.toggle('hidden', state !== 'loading');
+            $('state-empty').classList.toggle('hidden', state !== 'empty');
+            $('content').classList.toggle('hidden', state !== 'content');
+            $('error-banner').classList.toggle('hidden', state !== 'error');
+            if (state === 'error') { $('state-loading').classList.add('hidden'); setStatus('error', 'API unreachable'); }
+            if (state === 'empty') setStatus('frozen', 'Empty database');
+        }
+        async function loadAll() {
+            try {
+                const summary = await getJSON('/api/stats/summary/');
+                if (!summary.total_changesets) { showState('empty'); return; }
+                const [editors, hashtags, countries, timeline, latest, anomalies] = await Promise.all([
+                    getJSON('/api/stats/editors/?limit=4'),
+                    getJSON('/api/stats/hashtags/?limit=4'),
+                    getJSON('/api/stats/countries/?limit=5'),
+                    getJSON('/api/stats/timeline/?interval=hour'),
+                    getJSON('/api/changesets/?page_size=200'),
+                    getJSON('/api/changesets/?ordering=-ml_score&page_size=50'),
+                ]);
+                renderTiles(summary);
+                updateStatus(summary);
+                renderTimeline(timeline);
+                renderEditors(editors, summary.total_changesets);
+                renderBars('hashtag-bars', hashtags.slice(0, 4), '#7bd88f',
+                           r => `<span class="mono">${esc(r.hashtag)}</span>`);
+                renderBars('country-bars', countries, '#6ea8fe',
+                           r => `${flagEmoji(r.country_code)} ${esc(countryName(r.country_code))}`);
+                const countrySelect = $('q-country');
+                if (countrySelect.options.length <= 1) {
+                    countries.forEach(c => countrySelect.add(new Option(c.country_code, c.country_code)));
+                }
+                renderAnomalies(anomalies.results);
+                // scatter: a recent sample (the bulk of the population) + the top anomalies
+                const scatterSample = [...new Map(
+                    [...latest.results, ...anomalies.results].map(cs => [cs.changeset_id, cs])
+                ).values()];
+                renderScatter(scatterSample);
+                if (!started) {
+                    showState('content');
+                    initMap();
+                    started = true;
+                    setInterval(poll, POLL_MS);
+                }
+                const results = latest.results;
+                results.slice(0, 8).reverse().forEach(cs => pushFeedCard(cs, false));
+                results.slice().reverse().forEach(drawChangeset);
+                if (results.length) newestCreatedAt = results[0].created_at;
+                refreshUrl();
+            } catch (error) {
+                $('error-detail').textContent = error.message;
+                if (started) { setStatus('error', 'API unreachable'); $('error-banner').classList.remove('hidden'); }
+                else showState('error');
+            }
+        }
+        async function poll() {
+            try {
+                const params = newestCreatedAt ? `&created_after=${encodeURIComponent(newestCreatedAt)}` : '';
+                const [latest, summary] = await Promise.all([
+                    getJSON(`/api/changesets/?page_size=100${params}`),
+                    getJSON('/api/stats/summary/'),
+                ]);
+                $('error-banner').classList.add('hidden');
+                renderTiles(summary);
+                updateStatus(summary);
+                const fresh = latest.results.filter(cs => !drawnIds.has(cs.changeset_id));
+                fresh.slice().reverse().forEach(cs => feedQueue.push(cs));
+                if (latest.results.length) newestCreatedAt = latest.results[0].created_at;
+            } catch (error) {
+                $('error-detail').textContent = error.message;
+                setStatus('error', 'API unreachable');
+                $('error-banner').classList.remove('hidden');
+            }
+        }
+        $('retry-btn').addEventListener('click', loadAll);
+        loadAll();
+    </script>
+</body>
+</html>

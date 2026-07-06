@@ -352,6 +352,21 @@ class LiveMapPageTests(TestCase):
         self.assertContains(response, '/api/changesets/')
 
 
+class DashboardPageTests(TestCase):
+
+    def test_dashboard_renders_as_home_page(self):
+        response = self.client.get(reverse('api-landing-page'))
+        self.assertEqual(response.status_code, 200)
+        for fragment in ['OSM Live Observatory', 'Query builder', 'Anomaly detection',
+                         '/api/stats/summary/', 'Live contribution feed']:
+            self.assertContains(response, fragment)
+
+    def test_sequence_redirects_to_dashboard(self):
+        response = self.client.get('/api/sequence/')
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.headers['Location'], '/')
+
+
 class StatsAPITests(APITestCase):
 
     @classmethod

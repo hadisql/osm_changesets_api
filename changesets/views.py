@@ -4,7 +4,7 @@ from collections import Counter
 
 from django.db.models import Count, Max, Min, Sum
 from django.db.models.functions import TruncDay, TruncHour
-from django.http import HttpResponseRedirect, JsonResponse
+from django.http import HttpResponseRedirect
 from django.urls import reverse
 from django.views.generic import TemplateView
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 from .filters import ChangesetFilter
 from .models import Changeset
 from .osm_fetcher import fetch_and_process_changesets
-from .osm_utils import SequenceFetchError, fetch_sequence_xml, get_last_sequence
+from .osm_utils import SequenceFetchError
 from .serializers import ChangesetListSerializer, ChangesetSerializer
 
 logger = logging.getLogger(__name__)
@@ -260,19 +260,11 @@ class ChangesetListView(APIView):
 
 
 ##############################################
-### Landing page & live chart
+### Pages
 
-class APILandingPageView(TemplateView):
-    template_name = 'changesets/landing_page.html'
-
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        try:
-            context['last_changeset_id'] = get_last_sequence()
-        except SequenceFetchError:
-            logger.warning("Could not fetch last sequence for the landing page", exc_info=True)
-            context['last_changeset_id'] = None
-        return context
+class DashboardView(TemplateView):
+    """The observatory dashboard (home page) — pure client of the query/stats API."""
+    template_name = 'changesets/dashboard.html'
 
 
 class LiveMapView(TemplateView):
@@ -284,81 +276,3 @@ class LiveMapView(TemplateView):
 
 def redirect_to_landing_page(request):
     return HttpResponseRedirect(reverse('api-landing-page'))
-
-
-import gzip
-import xml.etree.ElementTree as ET
-
-import requests
-from bs4 import BeautifulSoup
-
-from .osm_utils import REQUEST_TIMEOUT
-
-
-def scrape_timestamps(sequence, n=10):
-    """Scrapes the timestamps of the last n changesets"""
-    sequence_adjusted = str(sequence).rjust(9, "0")
-    url = f"https://planet.osm.org/replication/changesets/{sequence_adjusted[0:3]}/{sequence_adjusted[3:6]}/"
-    response = requests.get(url, timeout=REQUEST_TIMEOUT)
-    html_content = response.text
-    soup = BeautifulSoup(html_content, 'html.parser')
-    timestamps = {}
-
-    for a_tag in soup.find_all('a', href=True):
-        href = a_tag['href']
-        if href.endswith('.state.txt'):
-            number = int(href.split('.')[0])
-            seq_last_3_digits = int(str(sequence)[-3:])
-            if number in range(seq_last_3_digits - n  +1, seq_last_3_digits + 1):
-                timestamp = a_tag.find_next_sibling(string=True).strip().split()[:2]
-                timestamps[number] = timestamp
-
-    return timestamps
-
-def get_changeset_count(sequence):
-    """ Fetches one sequence and returns the number of changesets it contains """
-    xml_sequence, _ = fetch_sequence_xml(sequence)
-    return len(xml_sequence)
-
-def get_last_n_sequences(n=10):
-    """Fetches the last N changeset counts starting from the latest sequence"""
-    last_sequence = get_last_sequence()  # Get the latest sequence from the state.yaml file
-    sequence_data = []
-
-    timestamps = scrape_timestamps(last_sequence, n=n) # we scrape the last n_sequences' timestamps
-
-    for i in range(n):
-        sequence_number = last_sequence - i
-        count = get_changeset_count(sequence_number)
-        seq_last_3_digits = int(str(sequence_number)[-3:])
-        sequence_data.append({"sequence": sequence_number, "changeset_count": count, "timestamp": timestamps[seq_last_3_digits][1]})
-
-    sequence_data.reverse()  # To show the oldest data first
-    return sequence_data
-
-# Store the previous sequence to compare with the new one
-last_fetched_sequence = None
-
-def update_changeset_view(request):
-    global last_fetched_sequence
-    try:
-        if request.GET.get('initial') == 'true':
-            # If it's the first request, fetch the last 10 sequences
-            last_10_data = get_last_n_sequences(10)
-            last_fetched_sequence = last_10_data[-1]["sequence"]  # The latest sequence
-            return JsonResponse({"initial_data": last_10_data})
-
-        # Real-time updating logic (after the initial load)
-        new_sequence = get_last_sequence()
-
-        # Check if the new sequence is different from the previous one
-        if new_sequence != last_fetched_sequence:
-            changeset_count = get_changeset_count(new_sequence)
-            last_fetched_sequence = new_sequence  # Update the last fetched sequence
-            return JsonResponse({"sequence": new_sequence, "changeset_count": changeset_count})
-    except SequenceFetchError as exc:
-        logger.warning("Live chart update failed: %s", exc)
-        return JsonResponse({"error": str(exc)}, status=502)
-
-    # If there's no new sequence, return an empty response to avoid updating
-    return JsonResponse({"sequence": last_fetched_sequence, "changeset_count": None})
