@@ -84,6 +84,9 @@
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            // Django's default Referrer-Policy is same-origin, which strips the Referer
+            // on tile requests; OSM's tile usage policy requires it (403r otherwise)
+            referrerPolicy: 'strict-origin-when-cross-origin',
         }).addTo(map);
 
         document.getElementById('legend').innerHTML =
