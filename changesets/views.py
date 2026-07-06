@@ -149,6 +149,24 @@ class TopHashtagsView(APIView):
 
 
 @extend_schema(
+    summary="Top countries",
+    parameters=[LIMIT_PARAMETER],
+    description="Countries (ISO alpha-2, resolved offline from the bbox center) ranked by "
+                "number of changesets. Accepts the same filters as /api/changesets/.",
+)
+class TopCountriesView(APIView):
+    def get(self, request):
+        rows = (
+            filtered_changesets(request)
+            .exclude(country_code__isnull=True)
+            .values('country_code')
+            .annotate(changesets=Count('id'), edits=Sum('changes_count'))
+            .order_by('-changesets')[:get_limit(request)]
+        )
+        return Response(list(rows))
+
+
+@extend_schema(
     summary="Suspicion overview",
     description="Distribution of the rule-based suspicion flags and score levels "
                 "(see /api/changesets/?flag=... to drill down). "

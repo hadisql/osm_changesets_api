@@ -8,6 +8,7 @@ from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
 from .models import Changeset
 from .anomaly import compute_suspicion
+from .geo import changeset_country
 from django.forms.models import model_to_dict
 
 logger = logging.getLogger(__name__)
@@ -240,5 +241,8 @@ def changeset_formatting(changeset, sequence_number, save_db):
     score, flags = compute_suspicion(formatted_changeset)
     formatted_changeset['suspicion_score'] = score
     formatted_changeset['suspicion_flags'] = flags
+
+    # offline country resolution from the bbox center (see geo.py)
+    formatted_changeset['country_code'] = changeset_country(formatted_changeset)
 
     return formatted_changeset

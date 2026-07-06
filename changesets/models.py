@@ -24,6 +24,7 @@ class Changeset(models.Model):
     additional_tags = models.JSONField(null=True)
     sequence_from = models.IntegerField(null=True) # Sequence from which the changeset was fetched
     history = models.JSONField(null=True, default=list) # Stores the history of the changeset
+    country_code = models.CharField(max_length=2, null=True) # ISO 3166-1 alpha-2, from the bbox center (computed at ingestion)
     suspicion_score = models.IntegerField(null=True) # 0-100, rule-based (computed at ingestion)
     suspicion_flags = models.JSONField(null=True, default=list) # names of the triggered rules
     ml_score = models.FloatField(null=True) # 0-100 percentile of Isolation Forest anomaly score
@@ -39,6 +40,7 @@ class Changeset(models.Model):
             models.Index(fields=['sequence_from']),
             models.Index(fields=['suspicion_score']),
             models.Index(fields=['ml_score']),
+            models.Index(fields=['country_code']),
         ]
 
     def __str__(self):

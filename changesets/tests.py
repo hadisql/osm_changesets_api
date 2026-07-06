@@ -284,6 +284,65 @@ class ScoreAnomaliesCommandTests(TestCase):
             call_command('score_anomalies', stdout=StringIO())
 
 
+class GeoTests(TestCase):
+
+    def test_country_for_known_coordinates(self):
+        from .geo import country_for
+        self.assertEqual(country_for(48.8566, 2.3522), 'FR')
+
+    def test_country_for_missing_coordinates(self):
+        from .geo import country_for
+        self.assertIsNone(country_for(None, 2.35))
+
+    def test_formatting_sets_country_from_bbox_center(self):
+        element = ET.fromstring(SAMPLE_CHANGESET_XML)
+        formatted = changeset_formatting(element, sequence_number=6200000, save_db=True)
+        self.assertEqual(formatted['country_code'], 'GT')  # sample bbox is in Guatemala
+
+
+class CountryAPITests(APITestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        create_changeset(changeset_id=1, country_code='FR', changes_count=10)
+        create_changeset(changeset_id=2, country_code='FR', changes_count=5)
+        create_changeset(changeset_id=3, country_code='AR', changes_count=100)
+        create_changeset(changeset_id=4, country_code=None)
+
+    def test_filter_by_country_case_insensitive(self):
+        response = self.client.get('/api/changesets/', {'country': 'fr'})
+        self.assertEqual(response.data['count'], 2)
+
+    def test_top_countries(self):
+        response = self.client.get(reverse('stats-countries'))
+        self.assertEqual(response.data[0], {'country_code': 'FR', 'changesets': 2, 'edits': 15})
+        self.assertEqual(response.data[1], {'country_code': 'AR', 'changesets': 1, 'edits': 100})
+
+
+class ScoreSchedulingTests(TestCase):
+
+    def make_command(self):
+        from changesets.management.commands.ingest_changesets import Command
+        command = Command()
+        command._last_scored_at = None
+        command.stderr = StringIO()
+        return command
+
+    def test_disabled_by_default(self):
+        command = self.make_command()
+        with mock.patch('changesets.management.commands.ingest_changesets.call_command') as scored:
+            command.maybe_score(None)
+        scored.assert_not_called()
+
+    def test_scores_once_per_interval(self):
+        command = self.make_command()
+        command.stdout = StringIO()
+        with mock.patch('changesets.management.commands.ingest_changesets.call_command') as scored:
+            command.maybe_score(15)
+            command.maybe_score(15)  # immediately after: within the interval
+        scored.assert_called_once()
+
+
 class LiveMapPageTests(TestCase):
 
     def test_map_page_renders(self):

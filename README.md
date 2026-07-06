@@ -60,6 +60,7 @@ Live contributions map: **http://127.0.0.1:8000/map/** — every ingested change
 | `user` / `uid` | `?user=jeanmapper` | By username (case-insensitive) or user id |
 | `editor` | `?editor=StreetComplete` | By editing software |
 | `hashtag` | `?hashtag=missingmaps` | Changesets tagged with a hashtag (leading `#` optional) |
+| `country` | `?country=FR` | ISO alpha-2 country code (resolved offline from the bbox center at ingestion) |
 | `bbox` | `?bbox=2.2,48.8,2.5,48.9` | Intersecting a bounding box (`min_lon,min_lat,max_lon,max_lat`) |
 | `created_after` / `created_before` | `?created_after=2026-07-01T00:00:00Z` | Creation date range |
 | `min_changes` / `max_changes` | `?min_changes=100` | By number of edits |
@@ -77,6 +78,7 @@ All stats endpoints accept the **same filters** as `/api/changesets/`, so you ca
 | `GET /api/stats/contributors/?limit=10` | Top users by changeset count |
 | `GET /api/stats/editors/?limit=10` | Top editing software (versions stripped) |
 | `GET /api/stats/hashtags/?limit=10` | Top hashtags |
+| `GET /api/stats/countries/?limit=10` | Top countries by changeset count |
 | `GET /api/stats/timeline/?interval=hour\|day` | Changesets & edits per time bucket |
 
 ### Legacy
@@ -96,6 +98,7 @@ python manage.py ingest_changesets --follow               # run forever
     --interval 60          polling interval (seconds)
     --max-catchup 120      max sequences to catch up after a downtime
     --retention-days 7     purge changesets older than N days (keeps the DB bounded)
+    --score-interval 15    run the Isolation Forest scoring every N minutes
 ```
 
 A changeset can appear in several consecutive sequences while it is open; the ingestion upserts it and keeps the previous states in the `history` field.

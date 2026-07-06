@@ -7,6 +7,7 @@ from .views import (
     StatsSummaryView,
     SuspicionStatsView,
     TimelineView,
+    TopCountriesView,
     TopContributorsView,
     TopEditorsView,
     TopHashtagsView,
@@ -24,6 +25,7 @@ urlpatterns = [
     path('stats/contributors/', TopContributorsView.as_view(), name='stats-contributors'),
     path('stats/editors/', TopEditorsView.as_view(), name='stats-editors'),
     path('stats/hashtags/', TopHashtagsView.as_view(), name='stats-hashtags'),
+    path('stats/countries/', TopCountriesView.as_view(), name='stats-countries'),
     path('stats/timeline/', TimelineView.as_view(), name='stats-timeline'),
     path('stats/suspicion/', SuspicionStatsView.as_view(), name='stats-suspicion'),
 

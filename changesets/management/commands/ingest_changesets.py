@@ -10,6 +10,7 @@ import logging
 import time
 from datetime import timedelta
 
+from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
 from django.db.models import Max
 from django.utils import timezone
@@ -36,10 +37,13 @@ class Command(BaseCommand):
         parser.add_argument("--retention-days", type=int, default=None,
                             help="If set, delete changesets created more than N days ago "
                                  "(keeps the database bounded on long-running deployments).")
+        parser.add_argument("--score-interval", type=int, default=None,
+                            help="In --follow mode, run the score_anomalies command every N minutes.")
 
     def handle(self, *args, **options):
         if options["follow"]:
-            self.run_follow(options["interval"], options["max_catchup"], options["retention_days"])
+            self.run_follow(options["interval"], options["max_catchup"],
+                            options["retention_days"], options["score_interval"])
             return
 
         if (options["start"] is None) != (options["end"] is None):
@@ -81,9 +85,23 @@ class Command(BaseCommand):
             self.stdout.write(f"Sequence {sequence_number}: {len(changesets)} changeset(s) processed.")
         return ok, failed
 
-    def run_follow(self, interval, max_catchup, retention_days=None):
+    def maybe_score(self, score_interval_minutes):
+        """Runs score_anomalies when the last run is older than the configured interval."""
+        if not score_interval_minutes:
+            return
+        now = time.monotonic()
+        if self._last_scored_at is not None and now - self._last_scored_at < score_interval_minutes * 60:
+            return
+        self._last_scored_at = now
+        try:
+            call_command("score_anomalies", stdout=self.stdout, stderr=self.stderr)
+        except CommandError as exc:  # e.g. not enough rows yet
+            self.stderr.write(self.style.WARNING(f"Anomaly scoring skipped: {exc}"))
+
+    def run_follow(self, interval, max_catchup, retention_days=None, score_interval=None):
         """Polls state.yaml forever and ingests every sequence not yet in the database."""
         self.stdout.write(f"Following replication stream (polling every {interval}s). Ctrl+C to stop.")
+        self._last_scored_at = None
         try:
             while True:
                 try:
@@ -106,6 +124,7 @@ class Command(BaseCommand):
                     self.stdout.write(f"Up to date (sequence {remote_latest}).")
 
                 self.prune(retention_days)
+                self.maybe_score(score_interval)
 
                 time.sleep(interval)
         except KeyboardInterrupt:
