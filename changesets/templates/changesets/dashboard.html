@@ -212,11 +212,33 @@
         .arow .ml { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
         .arow .rules { font-family: 'JetBrains Mono', monospace; color: rgba(var(--text-rgb), .5); }
         .arow .chips { display: flex; gap: 4px; flex-wrap: wrap; }
-        .arow .chip { font-size: 9.5px; padding: 2px 6px; border-radius: 4px; background: rgba(255,107,107,.12); color: #e07070; white-space: nowrap; }
+        .arow .chip { font-size: 9.5px; padding: 2px 6px; border-radius: 4px; background: rgba(255,107,107,.12); color: #e07070; white-space: nowrap; position: relative; cursor: help; }
+        .info {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 13px; height: 13px; border-radius: 50%; margin-left: 3px;
+            background: rgba(var(--surface-rgb), .12); color: rgba(var(--text-rgb), .6);
+            font-size: 9px; font-weight: 700; cursor: help; position: relative;
+            text-transform: none; letter-spacing: 0; vertical-align: 1px;
+        }
+        .info:hover::after, .chip:hover::after {
+            content: attr(data-tip); position: absolute; bottom: calc(100% + 7px); left: 50%;
+            transform: translateX(-50%); width: 190px; white-space: normal;
+            background: var(--card-bg); border: 1px solid rgba(var(--surface-rgb), .18);
+            color: var(--text0); font-size: 10.5px; font-weight: 400; line-height: 1.45;
+            font-family: 'Space Grotesk', sans-serif; text-transform: none; letter-spacing: 0;
+            padding: 7px 9px; border-radius: 6px; z-index: 60; box-shadow: 0 4px 14px rgba(0,0,0,.3);
+        }
         .arow .view { font-size: 11px; text-align: right; }
         #scatter-panel { border-radius: 12px; padding: 16px; }
         #scatter-panel .axis-label { font-size: 11px; color: rgba(var(--text-rgb), .4); margin-bottom: 10px; }
-        #scatter { position: relative; height: 180px; border-left: 1px solid rgba(var(--surface-rgb), .1); border-bottom: 1px solid rgba(var(--surface-rgb), .1); }
+        #scatter { position: relative; height: 180px; margin: 0 4px 18px 34px;
+                   border-left: 1px solid rgba(var(--surface-rgb), .1); border-bottom: 1px solid rgba(var(--surface-rgb), .1); }
+        #scatter .tick { position: absolute; font-size: 9px; font-family: 'JetBrains Mono', monospace; color: rgba(var(--text-rgb), .35); }
+        #scatter .tick.y { right: calc(100% + 6px); transform: translateY(50%); }
+        #scatter .tick.x { top: calc(100% + 5px); transform: translateX(-50%); }
+        #scatter .axis-name { position: absolute; font-size: 9.5px; color: rgba(var(--text-rgb), .45); letter-spacing: .04em; text-transform: uppercase; }
+        #scatter .axis-name.y { left: -30px; top: 50%; transform: rotate(-90deg) translateX(50%); transform-origin: left center; white-space: nowrap; }
+        #scatter .axis-name.x { top: calc(100% + 4px); right: 0; }
         #scatter .pt { position: absolute; width: 7px; height: 7px; border-radius: 50%; transform: translate(-50%, 50%); }
         #scatter .callout { position: absolute; font-size: 9.5px; color: var(--danger-soft); white-space: nowrap; line-height: 1.3; transform: translate(-40%, -110%); background: rgba(18,20,27,.9); border: 1px solid rgba(255,107,107,.25); padding: 3px 6px; border-radius: 5px; }
         [data-theme="light"] #scatter .callout { background: rgba(255,255,255,.92); }
@@ -367,7 +389,13 @@
             </div>
             <div id="anomaly-grid">
                 <div id="anomaly-table" class="panel">
-                    <div class="arow header"><div>#</div><div>Contributor</div><div>ML</div><div>Rules</div><div class="chips-h">Triggered</div><div></div></div>
+                    <div class="arow header">
+                        <div>#</div><div>Contributor</div>
+                        <div>ML<span class="info" data-tip="Isolation Forest anomaly percentile (0-100), retrained on the current database: 100 = the most statistically atypical changeset of the batch. Unsupervised — atypical, not necessarily malicious.">?</span></div>
+                        <div>Rules<span class="info" data-tip="Rule-based suspicion score (0-100): sum of weighted heuristic flags computed at ingestion (huge bbox, high edit count, no comment, new mapper, review requested).">?</span></div>
+                        <div class="chips-h">Triggered<span class="info" data-tip="Which heuristic rules fired for this changeset. Hover a flag for its definition.">?</span></div>
+                        <div></div>
+                    </div>
                     <div id="anomaly-rows"></div>
                 </div>
                 <div id="scatter-panel" class="panel">
@@ -607,12 +635,20 @@
         });
 
         /* ---------- anomalies ---------- */
+        const RULE_HELP = {
+            huge_bbox: 'Bounding box larger than 25 square degrees — the changeset spans a country-to-continent scale area.',
+            high_change_count: '1,500 or more edits in a single changeset — typical of imports or mechanical edits.',
+            no_comment: 'Empty or missing changeset comment.',
+            new_mapper: 'The contributor had fewer than 5 changesets at upload time (editor-reported).',
+            review_requested: 'The contributor explicitly asked for a review (review_requested=yes tag).',
+        };
         function mlColor(ml) { return ml >= 90 ? 'var(--danger-soft)' : ml >= 80 ? '#d9a944' : 'var(--text0)'; }
         function renderAnomalies(rows) {
             $('anomaly-rows').innerHTML = rows.slice(0, 10).map((cs, i) => {
                 const flags = cs.suspicion_flags || [];
-                const chips = flags.slice(0, 2).map(f => `<span class="chip">${esc(f)}</span>`).join('')
-                    + (flags.length > 2 ? `<span class="chip">+${flags.length - 2}</span>` : '');
+                const chip = f => `<span class="chip" data-tip="${esc(RULE_HELP[f] || f)}">${esc(f)}</span>`;
+                const chips = flags.slice(0, 2).map(chip).join('')
+                    + (flags.length > 2 ? `<span class="chip" data-tip="${esc(flags.slice(2).join(', '))}">+${flags.length - 2}</span>` : '');
                 return `<div class="arow">
                     <div class="rank">${i + 1}</div>
                     <div class="who" title="${esc(cs.user)}">${esc(cs.user || 'unknown')}</div>
@@ -626,10 +662,12 @@
         function renderScatter(rows) {
             const pts = rows.filter(cs => cs.ml_score != null);
             if (!pts.length) return;
-            const maxLog = Math.max(...pts.map(cs => Math.log1p(cs.changes_count || 0)), 1);
+            const maxChanges = Math.max(...pts.map(cs => cs.changes_count || 0), 10);
+            const maxLog = Math.log1p(maxChanges);
+            const xPos = v => Math.log1p(v) / maxLog * 92 + 4;
             let callout = null;
             const html = pts.map(cs => {
-                const x = Math.log1p(cs.changes_count || 0) / maxLog * 92 + 4;
+                const x = xPos(cs.changes_count || 0);
                 const y = (cs.ml_score / 100) * 92 + 4;
                 const flagged = (cs.suspicion_score ?? 0) > 0;
                 if (!flagged && cs.ml_score >= 97 && (!callout || cs.ml_score > callout.ml)) callout = { x, y, ml: cs.ml_score };
@@ -637,7 +675,13 @@
             }).join('');
             const calloutHtml = callout
                 ? `<div class="callout" style="left:${Math.min(callout.x, 70)}%;bottom:${Math.min(callout.y + 4, 72)}%">ML flags this —<br>no rule fired</div>` : '';
-            $('scatter').innerHTML = html + calloutHtml;
+            // axes: y = anomaly percentile (linear), x = edit count (log ticks at 1, 10, 100…)
+            const yTicks = [0, 50, 100].map(v =>
+                `<div class="tick y" style="bottom:${v / 100 * 92 + 4}%">${v}</div>`).join('');
+            const xTicks = [1, 10, 100, 1000, 10000, 100000].filter(v => v <= maxChanges).map(v =>
+                `<div class="tick x" style="left:${xPos(v)}%">${v >= 1000 ? (v / 1000) + 'k' : v}</div>`).join('');
+            const axisNames = `<div class="axis-name y">ML percentile</div><div class="axis-name x">edits (log)</div>`;
+            $('scatter').innerHTML = html + calloutHtml + yTicks + xTicks + axisNames;
         }
 
         /* ---------- orchestration ---------- */
@@ -654,13 +698,15 @@
             try {
                 const summary = await getJSON('/api/stats/summary/');
                 if (!summary.total_changesets) { showState('empty'); return; }
-                const [editors, hashtags, countries, timeline, latest, anomalies] = await Promise.all([
+                const [editors, hashtags, countries, timeline, latest, anomalies, scored] = await Promise.all([
                     getJSON('/api/stats/editors/?limit=4'),
                     getJSON('/api/stats/hashtags/?limit=4'),
                     getJSON('/api/stats/countries/?limit=5'),
                     getJSON('/api/stats/timeline/?interval=hour'),
                     getJSON('/api/changesets/?page_size=200'),
                     getJSON('/api/changesets/?ordering=-ml_score&page_size=50'),
+                    // min_ml_score=0 keeps only changesets that actually have an ML score
+                    getJSON('/api/changesets/?min_ml_score=0&page_size=200'),
                 ]);
                 renderTiles(summary);
                 updateStatus(summary);
@@ -675,9 +721,9 @@
                     countries.forEach(c => countrySelect.add(new Option(c.country_code, c.country_code)));
                 }
                 renderAnomalies(anomalies.results);
-                // scatter: a recent sample (the bulk of the population) + the top anomalies
+                // scatter: a recent *scored* sample (the bulk of the population) + the top anomalies
                 const scatterSample = [...new Map(
-                    [...latest.results, ...anomalies.results].map(cs => [cs.changeset_id, cs])
+                    [...scored.results, ...anomalies.results].map(cs => [cs.changeset_id, cs])
                 ).values()];
                 renderScatter(scatterSample);
                 if (!started) {
