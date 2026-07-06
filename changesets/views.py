@@ -232,6 +232,11 @@ class APILandingPageView(TemplateView):
         return context
 
 
+class LiveMapView(TemplateView):
+    """World map of the latest ingested changesets, refreshed by polling /api/changesets/."""
+    template_name = 'changesets/map_page.html'
+
+
 ## Redirect to landing page
 
 def redirect_to_landing_page(request):

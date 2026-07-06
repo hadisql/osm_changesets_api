@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>OSM Live Contributions Map</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+          integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+            integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; font-family: system-ui, -apple-system, sans-serif; }
+        #topbar {
+            position: relative; z-index: 1000; height: 56px;
+            display: flex; align-items: center; gap: 16px; padding: 0 16px;
+            background: #1f2937; color: #f9fafb; flex-wrap: nowrap; overflow-x: auto;
+        }
+        #topbar h1 { font-size: 17px; font-weight: 600; white-space: nowrap; }
+        #topbar a { color: #93c5fd; text-decoration: none; font-size: 14px; white-space: nowrap; }
+        #topbar a:hover { text-decoration: underline; }
+        #live-dot {
+            display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+            background: #22c55e; margin-right: 6px; animation: pulse 1.6s infinite;
+        }
+        #live-dot.stale { background: #f59e0b; animation: none; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+        #status { font-size: 13.5px; color: #d1d5db; white-space: nowrap; }
+        #map { height: calc(100% - 56px); width: 100%; }
+        #legend {
+            position: absolute; bottom: 18px; left: 12px; z-index: 1000;
+            background: rgba(255,255,255,.94); border-radius: 8px; padding: 10px 13px;
+            font-size: 12.5px; box-shadow: 0 1px 6px rgba(0,0,0,.25); line-height: 1.75;
+        }
+        #legend .swatch {
+            display: inline-block; width: 11px; height: 11px; border-radius: 2px;
+            margin-right: 7px; vertical-align: -1px;
+        }
+        .popup-body { font-size: 13px; line-height: 1.5; max-width: 240px; }
+        .popup-body .comment { font-style: italic; color: #374151; margin: 4px 0; }
+        .popup-body .meta { color: #6b7280; font-size: 12px; }
+        .spacer { flex: 1; }
+    </style>
+</head>
+<body>
+    <div id="topbar">
+        <h1>🗺️ OSM Live Contributions</h1>
+        <span id="status"><span id="live-dot"></span><span id="status-text">loading…</span></span>
+        <span class="spacer"></span>
+        <a href="{% url 'api-landing-page' %}">Home</a>
+        <a href="/api/changesets/">API</a>
+        <a href="/api/docs/">Docs</a>
+    </div>
+    <div id="map"></div>
+    <div id="legend"></div>
+
+    <script>
+        const POLL_INTERVAL_MS = 30000;   // the replication stream produces one sequence/minute
+        const MAX_RECTANGLES = 400;       // oldest rectangles are dropped beyond this
+        const MAX_BBOX_DEGREES = 45;      // skip world-spanning bulk edits (they hide everything else)
+        const STALE_AFTER_MIN = 10;       // warn when the newest data is older than this
+
+        const EDITOR_COLORS = [
+            ['iD',             '#2563eb'],
+            ['JOSM',           '#dc2626'],
+            ['StreetComplete', '#16a34a'],
+            ['Rapid',          '#9333ea'],
+            ['Other',          '#6b7280'],
+        ];
+
+        function editorFamily(createdBy) {
+            if (!createdBy) return 'Other';
+            for (const [name] of EDITOR_COLORS) {
+                if (name !== 'Other' && createdBy.toLowerCase().startsWith(name.toLowerCase())) return name;
+            }
+            return 'Other';
+        }
+        function editorColor(family) {
+            const entry = EDITOR_COLORS.find(([name]) => name === family);
+            return entry ? entry[1] : '#6b7280';
+        }
+
+        const map = L.map('map', { worldCopyJump: true }).setView([25, 10], 2);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        }).addTo(map);
+
+        document.getElementById('legend').innerHTML =
+            EDITOR_COLORS.map(([name, color]) =>
+                `<div><span class="swatch" style="background:${color}"></span>${name}</div>`).join('');
+
+        const drawnIds = new Set();
+        const rectangles = [];   // insertion order, oldest first
+        let newestCreatedAt = null;
+        let totalShown = 0;
+
+        function popupHtml(cs) {
+            const created = new Date(cs.created_at).toLocaleString();
+            const comment = cs.comment ? `<div class="comment">“${escapeHtml(cs.comment)}”</div>` : '';
+            return `<div class="popup-body">
+                <strong><a href="https://www.openstreetmap.org/user/${encodeURIComponent(cs.user)}" target="_blank" rel="noopener">${escapeHtml(cs.user || 'unknown')}</a></strong>
+                ${comment}
+                <div class="meta">${escapeHtml(cs.created_by || 'unknown editor')} · ${cs.changes_count ?? '?'} edit(s)<br>
+                ${created}<br>
+                <a href="https://www.openstreetmap.org/changeset/${cs.changeset_id}" target="_blank" rel="noopener">changeset ${cs.changeset_id} ↗</a></div>
+            </div>`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function drawChangeset(cs, highlight) {
+            if (drawnIds.has(cs.changeset_id)) return false;
+            if (cs.min_lat == null || cs.min_lon == null) return false;
+            if ((cs.max_lon - cs.min_lon) > MAX_BBOX_DEGREES ||
+                (cs.max_lat - cs.min_lat) > MAX_BBOX_DEGREES) return false;
+
+            const color = editorColor(editorFamily(cs.created_by));
+            // point-like bboxes (single node edits) get a small circle instead of an invisible rectangle
+            let layer;
+            if ((cs.max_lon - cs.min_lon) < 1e-4 && (cs.max_lat - cs.min_lat) < 1e-4) {
+                layer = L.circleMarker([(cs.min_lat + cs.max_lat) / 2, (cs.min_lon + cs.max_lon) / 2],
+                                       { radius: 4, color, weight: 1.5, fillOpacity: .5 });
+            } else {
+                layer = L.rectangle([[cs.min_lat, cs.min_lon], [cs.max_lat, cs.max_lon]],
+                                    { color, weight: highlight ? 2.5 : 1.2, fillOpacity: highlight ? .25 : .08 });
+            }
+            layer.bindPopup(popupHtml(cs));
+            layer.addTo(map);
+            drawnIds.add(cs.changeset_id);
+            rectangles.push(layer);
+            while (rectangles.length > MAX_RECTANGLES) map.removeLayer(rectangles.shift());
+            return true;
+        }
+
+        function setStatus(text, stale) {
+            document.getElementById('status-text').textContent = text;
+            document.getElementById('live-dot').classList.toggle('stale', !!stale);
+        }
+
+        async function fetchChangesets(params) {
+            const query = new URLSearchParams({ page_size: 200, ordering: '-created_at', ...params });
+            const response = await fetch(`/api/changesets/?${query}`);
+            if (!response.ok) throw new Error(`API returned ${response.status}`);
+            return (await response.json()).results;
+        }
+
+        async function refresh(initial) {
+            try {
+                const params = (!initial && newestCreatedAt) ? { created_after: newestCreatedAt } : {};
+                const results = await fetchChangesets(params);
+                let added = 0;
+                // draw oldest first so that newest end up on top
+                for (const cs of results.slice().reverse()) {
+                    if (drawChangeset(cs, !initial)) added += 1;
+                }
+                totalShown += added;
+                if (results.length) {
+                    newestCreatedAt = results[0].created_at;
+                }
+                const ageMinutes = newestCreatedAt ? (Date.now() - new Date(newestCreatedAt)) / 60000 : Infinity;
+                if (ageMinutes > STALE_AFTER_MIN) {
+                    setStatus(`latest data: ${new Date(newestCreatedAt).toLocaleString()} — ingestion worker idle?`, true);
+                } else {
+                    setStatus(`live — ${totalShown} changeset(s) on map`, false);
+                }
+            } catch (error) {
+                setStatus(`API error: ${error.message}`, true);
+            }
+        }
+
+        refresh(true);
+        setInterval(() => refresh(false), POLL_INTERVAL_MS);
+    </script>
+</body>
+</html>

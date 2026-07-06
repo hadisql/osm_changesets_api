@@ -172,6 +172,20 @@ class ChangesetQueryAPITests(APITestCase):
         response = self.client.get('/api/changesets/999999/')
         self.assertEqual(response.status_code, 404)
 
+    def test_page_size_is_client_adjustable(self):
+        response = self.client.get('/api/changesets/', {'page_size': 2})
+        self.assertEqual(len(response.data['results']), 2)
+        self.assertIsNotNone(response.data['next'])
+
+
+class LiveMapPageTests(TestCase):
+
+    def test_map_page_renders(self):
+        response = self.client.get(reverse('live-map'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'leaflet')
+        self.assertContains(response, '/api/changesets/')
+
 
 class StatsAPITests(APITestCase):
 

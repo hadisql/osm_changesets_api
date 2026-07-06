@@ -19,6 +19,9 @@ manage.py ingest_changesets --follow           (ingestion worker: fetch, parse, 
         │
         ▼
    /api/changesets/ + /api/stats/*              (filterable REST API, OpenAPI-documented)
+        │
+        ▼
+   /map/                                        (live world map of contributions)
 ```
 
 ## Quickstart
@@ -38,6 +41,8 @@ python manage.py runserver
 ```
 
 Interactive API documentation (Swagger UI): **http://127.0.0.1:8000/api/docs/**
+
+Live contributions map: **http://127.0.0.1:8000/map/** — every ingested changeset drawn as its bounding box (colored by editor, popup with author/comment, link to the changeset on osm.org), refreshed by polling the API. Run the `--follow` worker in parallel to see the world light up in near real time.
 
 ## Endpoints
 
