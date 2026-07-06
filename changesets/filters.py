@@ -35,6 +35,13 @@ class ChangesetFilter(django_filters.FilterSet):
     sequence = django_filters.NumberFilter(field_name='sequence_from')
     bbox = django_filters.CharFilter(method='filter_bbox',
                                      help_text="min_lon,min_lat,max_lon,max_lat — changesets intersecting this box.")
+    min_suspicion = django_filters.NumberFilter(field_name='suspicion_score', lookup_expr='gte',
+                                                help_text="Rule-based suspicion score threshold (0-100).")
+    min_ml_score = django_filters.NumberFilter(field_name='ml_score', lookup_expr='gte',
+                                               help_text="Isolation Forest anomaly percentile threshold (0-100).")
+    flag = django_filters.CharFilter(method='filter_flag',
+                                     help_text="Changesets carrying this suspicion flag "
+                                               "(e.g. huge_bbox, high_change_count, new_mapper, review_requested, no_comment).")
 
     class Meta:
         model = Changeset
@@ -47,6 +54,12 @@ class ChangesetFilter(django_filters.FilterSet):
         return queryset.annotate(
             hashtags_text=Cast('hashtags', TextField())
         ).filter(hashtags_text__icontains=f'"{hashtag}"')
+
+    def filter_flag(self, queryset, name, value):
+        # same JSON-list-as-text trick as filter_hashtag
+        return queryset.annotate(
+            flags_text=Cast('suspicion_flags', TextField())
+        ).filter(flags_text__icontains=f'"{value}"')
 
     def filter_bbox(self, queryset, name, value):
         try:

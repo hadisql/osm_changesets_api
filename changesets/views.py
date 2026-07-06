@@ -34,7 +34,8 @@ class ChangesetQueryView(generics.ListAPIView):
     queryset = Changeset.objects.all()
     serializer_class = ChangesetListSerializer
     filterset_class = ChangesetFilter
-    ordering_fields = ['created_at', 'closed_at', 'changes_count', 'comments_count']
+    ordering_fields = ['created_at', 'closed_at', 'changes_count', 'comments_count',
+                       'suspicion_score', 'ml_score']
     ordering = ['-created_at']
 
 
@@ -145,6 +146,30 @@ class TopHashtagsView(APIView):
             {'hashtag': hashtag, 'changesets': count}
             for hashtag, count in counter.most_common(get_limit(request))
         ])
+
+
+@extend_schema(
+    summary="Suspicion overview",
+    description="Distribution of the rule-based suspicion flags and score levels "
+                "(see /api/changesets/?flag=... to drill down). "
+                "Accepts the same filters as /api/changesets/.",
+)
+class SuspicionStatsView(APIView):
+    def get(self, request):
+        queryset = filtered_changesets(request)
+        flag_lists = (
+            queryset
+            .exclude(suspicion_flags=[])
+            .exclude(suspicion_flags__isnull=True)
+            .values_list('suspicion_flags', flat=True)
+        )
+        flag_counter = Counter(flag for flags in flag_lists for flag in flags)
+        return Response({
+            'flag_counts': dict(flag_counter.most_common()),
+            'suspicion_gte_50': queryset.filter(suspicion_score__gte=50).count(),
+            'ml_scored': queryset.exclude(ml_score__isnull=True).count(),
+            'ml_gte_99': queryset.filter(ml_score__gte=99).count(),
+        })
 
 
 @extend_schema(

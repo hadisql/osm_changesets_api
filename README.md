@@ -102,6 +102,28 @@ A changeset can appear in several consecutive sequences while it is open; the in
 
 The OSM stream produces roughly 40–90k changesets per day, so a long-running deployment should always set `--retention-days` (the provided `Procfile` uses 7 days).
 
+## Anomaly detection
+
+Every ingested changeset gets a **rule-based suspicion score** (0-100) from metadata heuristics inspired by [OSMCha](https://github.com/OSMCha/osmcha): continental bounding box, very high edit count, missing comment, brand-new mapper, `review_requested` tag. Flags are stored per changeset.
+
+A second, unsupervised layer ranks changesets by how *atypical* their metadata is, using an **Isolation Forest** (scikit-learn) retrained on the current database content:
+
+```bash
+python manage.py score_anomalies            # score changesets without a score
+python manage.py score_anomalies --rescore-all
+```
+
+Both scores are queryable:
+
+```
+/api/changesets/?min_suspicion=50                  rule-based threshold
+/api/changesets/?flag=huge_bbox                    a specific rule
+/api/changesets/?ordering=-ml_score                most atypical first
+/api/stats/suspicion/                              flag distribution overview
+```
+
+The two layers are complementary: rules are interpretable and instant; the Isolation Forest also surfaces changesets that break no rule but deviate from the population.
+
 ## Tests
 
 ```bash

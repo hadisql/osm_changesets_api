@@ -178,6 +178,112 @@ class ChangesetQueryAPITests(APITestCase):
         self.assertIsNotNone(response.data['next'])
 
 
+class SuspicionRulesTests(TestCase):
+
+    def test_benign_changeset_gets_low_score(self):
+        from .anomaly import compute_suspicion
+        score, flags = compute_suspicion({
+            'changes_count': 12, 'comment': 'Added a bench and a bin',
+            'min_lat': 48.85, 'max_lat': 48.86, 'min_lon': 2.34, 'max_lon': 2.35,
+            'additional_tags': {'changesets_count': '250'},
+        })
+        self.assertEqual(score, 0)
+        self.assertEqual(flags, [])
+
+    def test_suspicious_changeset_accumulates_flags(self):
+        from .anomaly import compute_suspicion
+        score, flags = compute_suspicion({
+            'changes_count': 4000, 'comment': '',
+            'min_lat': -50, 'max_lat': 50, 'min_lon': -100, 'max_lon': 100,  # continental bbox
+            'additional_tags': {'changesets_count': '2', 'review_requested': 'yes'},
+        })
+        self.assertCountEqual(
+            flags, ['huge_bbox', 'high_change_count', 'no_comment', 'new_mapper', 'review_requested'])
+        self.assertEqual(score, 100)  # capped
+
+    def test_missing_metadata_is_not_flagged_as_new_mapper(self):
+        from .anomaly import compute_suspicion
+        score, flags = compute_suspicion({'changes_count': 5, 'comment': 'fix typo',
+                                          'additional_tags': {}})
+        self.assertNotIn('new_mapper', flags)
+
+    def test_scoring_happens_at_ingestion(self):
+        element = ET.fromstring(SAMPLE_CHANGESET_XML)
+        formatted = changeset_formatting(element, sequence_number=6200000, save_db=True)
+        self.assertIn('suspicion_score', formatted)
+        self.assertIn('suspicion_flags', formatted)
+
+
+class SuspicionAPITests(APITestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        create_changeset(changeset_id=1, suspicion_score=0, suspicion_flags=[], ml_score=10.0)
+        create_changeset(changeset_id=2, suspicion_score=55,
+                         suspicion_flags=['huge_bbox', 'high_change_count', 'no_comment'],
+                         ml_score=99.5)
+        create_changeset(changeset_id=3, suspicion_score=30,
+                         suspicion_flags=['new_mapper', 'no_comment'], ml_score=None)
+
+    def test_filter_by_min_suspicion(self):
+        response = self.client.get('/api/changesets/', {'min_suspicion': 50})
+        self.assertEqual(response.data['count'], 1)
+        self.assertEqual(response.data['results'][0]['changeset_id'], 2)
+
+    def test_filter_by_flag(self):
+        response = self.client.get('/api/changesets/', {'flag': 'no_comment'})
+        self.assertEqual(response.data['count'], 2)
+
+    def test_filter_by_min_ml_score(self):
+        response = self.client.get('/api/changesets/', {'min_ml_score': 90})
+        self.assertEqual(response.data['count'], 1)
+
+    def test_ordering_by_suspicion(self):
+        response = self.client.get('/api/changesets/', {'ordering': '-suspicion_score'})
+        self.assertEqual([row['changeset_id'] for row in response.data['results']], [2, 3, 1])
+
+    def test_suspicion_stats(self):
+        response = self.client.get(reverse('stats-suspicion'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data['flag_counts']['no_comment'], 2)
+        self.assertEqual(response.data['suspicion_gte_50'], 1)
+        self.assertEqual(response.data['ml_scored'], 2)
+        self.assertEqual(response.data['ml_gte_99'], 1)
+
+
+class ScoreAnomaliesCommandTests(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        # 59 ordinary changesets + 1 glaring outlier
+        for i in range(59):
+            create_changeset(changeset_id=i + 1, changes_count=5 + (i % 20),
+                             comment='small fix', additional_tags={'changesets_count': '300'})
+        create_changeset(changeset_id=1000, changes_count=90000, comment='',
+                         min_lat=-60, max_lat=70, min_lon=-170, max_lon=170,
+                         additional_tags={})
+
+    def test_outlier_gets_top_percentile(self):
+        out = StringIO()
+        call_command('score_anomalies', stdout=out)
+        outlier = Changeset.objects.get(changeset_id=1000)
+        self.assertIsNotNone(outlier.ml_score)
+        self.assertGreaterEqual(outlier.ml_score, 95.0)
+        self.assertEqual(Changeset.objects.filter(ml_score__isnull=True).count(), 0)
+        self.assertIn('60 score(s) written', out.getvalue())
+
+    def test_only_unscored_rows_updated_by_default(self):
+        Changeset.objects.filter(changeset_id=1).update(ml_score=42.0)
+        call_command('score_anomalies', stdout=StringIO())
+        self.assertEqual(Changeset.objects.get(changeset_id=1).ml_score, 42.0)
+
+    def test_refuses_to_train_on_tiny_dataset(self):
+        from django.core.management.base import CommandError
+        Changeset.objects.exclude(changeset_id__lte=10).delete()
+        with self.assertRaises(CommandError):
+            call_command('score_anomalies', stdout=StringIO())
+
+
 class LiveMapPageTests(TestCase):
 
     def test_map_page_renders(self):

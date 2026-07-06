@@ -24,6 +24,9 @@ class Changeset(models.Model):
     additional_tags = models.JSONField(null=True)
     sequence_from = models.IntegerField(null=True) # Sequence from which the changeset was fetched
     history = models.JSONField(null=True, default=list) # Stores the history of the changeset
+    suspicion_score = models.IntegerField(null=True) # 0-100, rule-based (computed at ingestion)
+    suspicion_flags = models.JSONField(null=True, default=list) # names of the triggered rules
+    ml_score = models.FloatField(null=True) # 0-100 percentile of Isolation Forest anomaly score
 
     class Meta:
         ordering = ['-created_at']
@@ -34,6 +37,8 @@ class Changeset(models.Model):
             models.Index(fields=['created_by']),
             models.Index(fields=['changes_count']),
             models.Index(fields=['sequence_from']),
+            models.Index(fields=['suspicion_score']),
+            models.Index(fields=['ml_score']),
         ]
 
     def __str__(self):

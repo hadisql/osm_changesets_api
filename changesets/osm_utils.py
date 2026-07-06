@@ -7,6 +7,7 @@ import yaml
 from datetime import datetime, timezone as dt_timezone
 from django.utils import timezone
 from .models import Changeset
+from .anomaly import compute_suspicion
 from django.forms.models import model_to_dict
 
 logger = logging.getLogger(__name__)
@@ -234,4 +235,10 @@ def changeset_formatting(changeset, sequence_number, save_db):
             formatted_changeset["additional_tags"][tag.attrib["k"]] = tag.attrib["v"]
 
     formatted_changeset['sequence_from'] = sequence_number
+
+    # rule-based suspicion scoring (metadata heuristics, see anomaly.py)
+    score, flags = compute_suspicion(formatted_changeset)
+    formatted_changeset['suspicion_score'] = score
+    formatted_changeset['suspicion_flags'] = flags
+
     return formatted_changeset

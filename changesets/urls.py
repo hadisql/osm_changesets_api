@@ -5,6 +5,7 @@ from .views import (
     ChangesetListView,
     ChangesetQueryView,
     StatsSummaryView,
+    SuspicionStatsView,
     TimelineView,
     TopContributorsView,
     TopEditorsView,
@@ -24,6 +25,7 @@ urlpatterns = [
     path('stats/editors/', TopEditorsView.as_view(), name='stats-editors'),
     path('stats/hashtags/', TopHashtagsView.as_view(), name='stats-hashtags'),
     path('stats/timeline/', TimelineView.as_view(), name='stats-timeline'),
+    path('stats/suspicion/', SuspicionStatsView.as_view(), name='stats-suspicion'),
 
     # On-demand ingestion (legacy) + landing page live chart
     path('sequence/<int:seq_start>/<int:seq_end>/', ChangesetListView.as_view(), name='changeset-list'),
