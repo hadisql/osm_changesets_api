@@ -10,3 +10,5 @@ input.css
 __pycache__/
 staticfiles/
 design_update
+ovid/ovid_changesets.jsonl
+ovid/ovid_missing_ids.txt
